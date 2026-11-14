@@ -14,9 +14,42 @@ pub struct TaskProgressPayload {
 }
 
 pub fn find_executable(name: &str) -> Option<PathBuf> {
-    // 1. Try standard command check via where.exe on Windows
+    // 1. Check local bundled binaries directory first (for installed app on other PCs or dev)
     #[cfg(target_os = "windows")]
     {
+        // A. Check next to running executable (production install: <dir>/binaries/ or <dir>/)
+        if let Ok(curr_exe) = std::env::current_exe() {
+            if let Some(exe_dir) = curr_exe.parent() {
+                let check_paths = [
+                    exe_dir.join("binaries").join(format!("{}.exe", name)),
+                    exe_dir.join(format!("{}.exe", name)),
+                    exe_dir.join("resources").join("binaries").join(format!("{}.exe", name)),
+                    exe_dir.join("..").join("binaries").join(format!("{}.exe", name)),
+                ];
+                for p in &check_paths {
+                    if p.exists() {
+                        return Some(p.clone());
+                    }
+                }
+            }
+        }
+
+        // B. Check relative to current working directory (in development mode)
+        let dev_paths = [
+            PathBuf::from(format!("src-tauri/binaries/{}.exe", name)),
+            PathBuf::from(format!("binaries/{}.exe", name)),
+            PathBuf::from(format!("../binaries/{}.exe", name)),
+        ];
+        for dp in &dev_paths {
+            if dp.exists() {
+                if let Ok(abs) = std::fs::canonicalize(dp) {
+                    return Some(abs);
+                }
+                return Some(dp.clone());
+            }
+        }
+
+        // 2. Try standard command check via where.exe on Windows
         if let Ok(output) = Command::new("where.exe").arg(name).output() {
             if output.status.success() {
                 if let Ok(text) = String::from_utf8(output.stdout) {
