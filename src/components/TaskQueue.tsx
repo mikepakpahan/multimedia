@@ -78,13 +78,24 @@ export const TaskQueue: React.FC<TaskQueueProps> = ({
               key={task.id}
               className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl space-y-2"
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-slate-200 truncate flex-1" title={task.name}>
-                  {task.name}
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold bg-blue-900/40 text-blue-300 border border-blue-800/40">
-                  {task.targetFormat}
-                </span>
+              <div className="flex items-center gap-2.5">
+                {task.thumbnail && (
+                  <img
+                    src={task.thumbnail}
+                    alt=""
+                    className="w-10 h-7 object-cover rounded bg-slate-900 border border-slate-800 shrink-0"
+                  />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-slate-200 truncate" title={task.name}>
+                      {task.name}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold bg-blue-900/40 text-blue-300 border border-blue-800/40 shrink-0">
+                      {task.targetFormat}
+                    </span>
+                  </div>
+                </div>
                 <button
                   onClick={() => onRemoveTask(task.id)}
                   className="text-slate-500 hover:text-red-400 transition"
@@ -113,7 +124,7 @@ export const TaskQueue: React.FC<TaskQueueProps> = ({
                   {task.status === 'processing' && (
                     <span className="flex items-center gap-1 text-blue-400">
                       <Loader2 className="w-3 h-3 animate-spin" />
-                      {task.progress}% {task.speed && `• ${task.speed}`}
+                      {task.progress}% {task.speed && `• ${task.speed}`} {task.eta && `• ETA ${task.eta}`}
                     </span>
                   )}
                   {task.status === 'completed' && (

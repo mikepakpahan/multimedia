@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { TaskQueue } from './components/TaskQueue';
@@ -9,7 +10,7 @@ import { AudioTab } from './components/tabs/AudioTab';
 import { ImageTab } from './components/tabs/ImageTab';
 import { PdfTab } from './components/tabs/PdfTab';
 import { SettingsTab } from './components/tabs/SettingsTab';
-import { TabType, EngineStatus, MediaTask } from './types';
+import { TabType, EngineStatus, MediaTask, YouTubeMetadata, ProgressPayload } from './types';
 import './App.css';
 
 export function App() {
@@ -33,21 +34,69 @@ export function App() {
 
   useEffect(() => {
     fetchEngines();
+
+    // Listen for real-time task progress events from Rust
+    const unlistenPromise = listen<ProgressPayload>('task-progress', (event) => {
+      const payload = event.payload;
+      setTasks((prev) =>
+        prev.map((task) => {
+          if (task.id === payload.task_id) {
+            return {
+              ...task,
+              progress: Math.round(payload.progress),
+              speed: payload.speed || task.speed,
+              eta: payload.eta || task.eta,
+              status: payload.status,
+              outputPath: payload.output_path || task.outputPath,
+              error: payload.status === 'failed' ? payload.message : undefined,
+            };
+          }
+          return task;
+        })
+      );
+    });
+
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
   }, []);
 
-  const handleStartDownload = (url: string, format: string) => {
+  const handleStartDownload = async (
+    url: string,
+    format: string,
+    metadata?: YouTubeMetadata
+  ) => {
+    const taskId = `yt-${Date.now()}`;
     const newTask: MediaTask = {
-      id: Math.random().toString(36).substring(2, 9),
-      name: `YouTube: ${url.length > 35 ? url.substring(0, 35) + '...' : url}`,
+      id: taskId,
+      name: metadata?.title || `YouTube: ${url.length > 35 ? url.substring(0, 35) + '...' : url}`,
       type: 'youtube',
-      status: 'pending',
+      status: 'processing',
       progress: 0,
       targetFormat: format.toUpperCase(),
+      thumbnail: metadata?.thumbnail,
       createdAt: Date.now(),
     };
 
     setTasks((prev) => [newTask, ...prev]);
     setIsQueueOpen(true);
+
+    try {
+      await invoke('start_youtube_download', {
+        taskId,
+        url,
+        formatPreset: format,
+        outputDir,
+      });
+    } catch (err) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId
+            ? { ...t, status: 'failed', error: String(err) }
+            : t
+        )
+      );
+    }
   };
 
   const handleClearCompleted = () => {

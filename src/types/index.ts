@@ -8,6 +8,25 @@ export interface EngineStatus {
   default_output_dir: string;
 }
 
+export interface YouTubeMetadata {
+  title: string;
+  thumbnail?: string;
+  duration?: number;
+  duration_string?: string;
+  uploader?: string;
+  webpage_url: string;
+}
+
+export interface ProgressPayload {
+  task_id: string;
+  progress: number;
+  speed?: string;
+  eta?: string;
+  status: 'processing' | 'completed' | 'failed';
+  message?: string;
+  output_path?: string;
+}
+
 export interface MediaTask {
   id: string;
   name: string;
@@ -19,5 +38,6 @@ export interface MediaTask {
   speed?: string;
   eta?: string;
   error?: string;
+  thumbnail?: string;
   createdAt: number;
 }

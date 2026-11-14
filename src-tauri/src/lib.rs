@@ -1,6 +1,10 @@
-use std::path::{Path, PathBuf};
+pub mod utils;
+pub mod youtube;
+
+use std::path::Path;
 use std::process::Command;
 use serde::Serialize;
+use utils::find_executable;
 
 #[derive(Serialize)]
 pub struct EngineStatus {
@@ -9,45 +13,6 @@ pub struct EngineStatus {
     pub ytdlp_installed: bool,
     pub ytdlp_path: Option<String>,
     pub default_output_dir: String,
-}
-
-fn find_executable(name: &str) -> Option<PathBuf> {
-    // 1. Try standard command check via where.exe on Windows
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(output) = Command::new("where.exe").arg(name).output() {
-            if output.status.success() {
-                if let Ok(text) = String::from_utf8(output.stdout) {
-                    if let Some(first_line) = text.lines().next() {
-                        let path = PathBuf::from(first_line.trim());
-                        if path.exists() {
-                            return Some(path);
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Fallback check common locations (e.g. Python Scripts for yt-dlp)
-        if let Ok(userprofile) = std::env::var("USERPROFILE") {
-            let possible_paths = [
-                format!("{}\\AppData\\Local\\Programs\\Python\\Python310\\Scripts\\{}.exe", userprofile, name),
-                format!("{}\\AppData\\Local\\Programs\\Python\\Python311\\Scripts\\{}.exe", userprofile, name),
-                format!("{}\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\{}.exe", userprofile, name),
-                format!("{}\\scoop\\shims\\{}.exe", userprofile, name),
-                format!("C:\\ProgramData\\chocolatey\\bin\\{}.exe", name),
-            ];
-
-            for p in &possible_paths {
-                let pb = PathBuf::from(p);
-                if pb.exists() {
-                    return Some(pb);
-                }
-            }
-        }
-    }
-
-    None
 }
 
 #[tauri::command]
@@ -60,7 +25,7 @@ fn check_system_engines() -> EngineStatus {
         .join("Downloads")
         .join("MultiMedia");
 
-    // Ensure the output directory exists
+    // Ensure output directory exists
     let _ = std::fs::create_dir_all(&default_output);
 
     EngineStatus {
@@ -92,7 +57,9 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             check_system_engines,
-            open_output_folder
+            open_output_folder,
+            youtube::fetch_youtube_metadata,
+            youtube::start_youtube_download
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
