@@ -1,5 +1,17 @@
 use std::path::PathBuf;
 use std::process::Command;
+use serde::Serialize;
+
+#[derive(Serialize, Clone, Debug)]
+pub struct TaskProgressPayload {
+    pub task_id: String,
+    pub progress: f64,
+    pub speed: Option<String>,
+    pub eta: Option<String>,
+    pub status: String, // "processing", "completed", "failed"
+    pub message: Option<String>,
+    pub output_path: Option<String>,
+}
 
 pub fn find_executable(name: &str) -> Option<PathBuf> {
     // 1. Try standard command check via where.exe on Windows

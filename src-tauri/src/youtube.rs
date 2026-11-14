@@ -6,7 +6,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-use crate::utils::find_executable;
+use crate::utils::{find_executable, TaskProgressPayload};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct YouTubeMetadata {
@@ -16,17 +16,6 @@ pub struct YouTubeMetadata {
     pub duration_string: Option<String>,
     pub uploader: Option<String>,
     pub webpage_url: String,
-}
-
-#[derive(Serialize, Clone, Debug)]
-pub struct ProgressPayload {
-    pub task_id: String,
-    pub progress: f64,
-    pub speed: Option<String>,
-    pub eta: Option<String>,
-    pub status: String, // "processing", "completed", "failed"
-    pub message: Option<String>,
-    pub output_path: Option<String>,
 }
 
 fn format_duration(seconds: f64) -> String {
@@ -250,7 +239,7 @@ pub fn start_youtube_download(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 0.0,
                         speed: None,
@@ -317,7 +306,7 @@ pub fn start_youtube_download(
 
                                 let _ = app_handle.emit(
                                     "task-progress",
-                                    ProgressPayload {
+                                    TaskProgressPayload {
                                         task_id: task_id_clone.clone(),
                                         progress: last_progress,
                                         speed,
@@ -340,7 +329,7 @@ pub fn start_youtube_download(
                 let final_path = last_output_file.unwrap_or(out_dir_str);
                 let _ = app_handle.emit(
                     "task-progress",
-                    ProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 100.0,
                         speed: None,
@@ -364,7 +353,7 @@ pub fn start_youtube_download(
 
                 let _ = app_handle.emit(
                     "task-progress",
-                    ProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: last_progress,
                         speed: None,
@@ -378,7 +367,7 @@ pub fn start_youtube_download(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: last_progress,
                         speed: None,

@@ -12,9 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "multimedia",
-        "width": 800,
-        "height": 600
+        "title": "MultiMedia Studio",
+        "width": 1050,
+        "height": 720,
+        "minWidth": 800,
+        "minHeight": 600,
+        "center": true,
+        "decorations": false
       }
     ],
     "security": {

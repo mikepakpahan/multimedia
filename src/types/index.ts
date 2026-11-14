@@ -1,4 +1,4 @@
-export type TabType = 'youtube' | 'video' | 'audio' | 'image' | 'pdf' | 'settings';
+export type TabType = 'dashboard' | 'youtube' | 'video' | 'audio' | 'image' | 'pdf' | 'settings';
 
 export interface EngineStatus {
   ffmpeg_installed: boolean;

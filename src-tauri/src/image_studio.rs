@@ -6,17 +6,7 @@ use image::imageops::FilterType;
 use image::ImageFormat;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-
-#[derive(Serialize, Clone, Debug)]
-pub struct ImageProgressPayload {
-    pub task_id: String,
-    pub progress: f64,
-    pub speed: Option<String>,
-    pub eta: Option<String>,
-    pub status: String,
-    pub message: Option<String>,
-    pub output_path: Option<String>,
-}
+use crate::utils::TaskProgressPayload;
 
 #[tauri::command]
 pub fn process_image(
@@ -58,7 +48,7 @@ pub fn process_image(
     std::thread::spawn(move || {
         let _ = app_handle.emit(
             "task-progress",
-            ImageProgressPayload {
+            TaskProgressPayload {
                 task_id: task_id_clone.clone(),
                 progress: 25.0,
                 speed: None,
@@ -74,7 +64,7 @@ pub fn process_image(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ImageProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 0.0,
                         speed: None,
@@ -102,7 +92,7 @@ pub fn process_image(
 
         let _ = app_handle.emit(
             "task-progress",
-            ImageProgressPayload {
+            TaskProgressPayload {
                 task_id: task_id_clone.clone(),
                 progress: 60.0,
                 speed: None,
@@ -154,7 +144,7 @@ pub fn process_image(
             Ok(_) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ImageProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 100.0,
                         speed: None,
@@ -168,7 +158,7 @@ pub fn process_image(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ImageProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 0.0,
                         speed: None,

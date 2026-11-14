@@ -5,18 +5,7 @@ use regex::Regex;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::utils::find_executable;
-
-#[derive(Serialize, Clone, Debug)]
-pub struct ConversionProgressPayload {
-    pub task_id: String,
-    pub progress: f64,
-    pub speed: Option<String>,
-    pub eta: Option<String>,
-    pub status: String,
-    pub message: Option<String>,
-    pub output_path: Option<String>,
-}
+use crate::utils::{find_executable, TaskProgressPayload};
 
 fn time_to_seconds(h: &str, m: &str, s: &str) -> f64 {
     let hours: f64 = h.parse().unwrap_or(0.0);
@@ -132,7 +121,7 @@ pub fn start_video_conversion(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ConversionProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 0.0,
                         speed: None,
@@ -179,7 +168,7 @@ pub fn start_video_conversion(
 
                                     let _ = app_handle.emit(
                                         "task-progress",
-                                        ConversionProgressPayload {
+                                        TaskProgressPayload {
                                             task_id: task_id_clone.clone(),
                                             progress: last_progress,
                                             speed,
@@ -202,7 +191,7 @@ pub fn start_video_conversion(
             Ok(exit_status) if exit_status.success() => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ConversionProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 100.0,
                         speed: None,
@@ -216,7 +205,7 @@ pub fn start_video_conversion(
             Ok(exit_status) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ConversionProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: last_progress,
                         speed: None,
@@ -230,7 +219,7 @@ pub fn start_video_conversion(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ConversionProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: last_progress,
                         speed: None,
@@ -312,7 +301,7 @@ pub fn start_audio_conversion(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ConversionProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 0.0,
                         speed: None,
@@ -357,7 +346,7 @@ pub fn start_audio_conversion(
 
                                     let _ = app_handle.emit(
                                         "task-progress",
-                                        ConversionProgressPayload {
+                                        TaskProgressPayload {
                                             task_id: task_id_clone.clone(),
                                             progress: last_progress,
                                             speed,
@@ -380,7 +369,7 @@ pub fn start_audio_conversion(
             Ok(exit_status) if exit_status.success() => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ConversionProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 100.0,
                         speed: None,
@@ -394,7 +383,7 @@ pub fn start_audio_conversion(
             Ok(exit_status) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ConversionProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: last_progress,
                         speed: None,
@@ -408,7 +397,7 @@ pub fn start_audio_conversion(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    ConversionProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: last_progress,
                         speed: None,

@@ -5,20 +5,9 @@ use regex::Regex;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::utils::find_executable;
+use crate::utils::{find_executable, TaskProgressPayload};
 
 const SCRIPT_CONTENT: &str = include_str!("../scripts/pdf_tools.py");
-
-#[derive(Serialize, Clone, Debug)]
-pub struct PdfProgressPayload {
-    pub task_id: String,
-    pub progress: f64,
-    pub speed: Option<String>,
-    pub eta: Option<String>,
-    pub status: String,
-    pub message: Option<String>,
-    pub output_path: Option<String>,
-}
 
 fn get_or_create_script(_app: &AppHandle) -> Result<PathBuf, String> {
     // 1. Try local dev directory
@@ -86,7 +75,7 @@ pub fn start_pdf_to_docx(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    PdfProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 0.0,
                         speed: None,
@@ -113,7 +102,7 @@ pub fn start_pdf_to_docx(
                                 last_progress = p;
                                 let _ = app_handle.emit(
                                     "task-progress",
-                                    PdfProgressPayload {
+                                    TaskProgressPayload {
                                         task_id: task_id_clone.clone(),
                                         progress: last_progress,
                                         speed: None,
@@ -135,7 +124,7 @@ pub fn start_pdf_to_docx(
             Ok(exit_status) if exit_status.success() => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    PdfProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 100.0,
                         speed: None,
@@ -149,7 +138,7 @@ pub fn start_pdf_to_docx(
             Ok(exit_status) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    PdfProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: last_progress,
                         speed: None,
@@ -163,7 +152,7 @@ pub fn start_pdf_to_docx(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    PdfProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: last_progress,
                         speed: None,
@@ -227,7 +216,7 @@ pub fn start_pdf_compress(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    PdfProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 0.0,
                         speed: None,
@@ -254,7 +243,7 @@ pub fn start_pdf_compress(
                                 last_progress = p;
                                 let _ = app_handle.emit(
                                     "task-progress",
-                                    PdfProgressPayload {
+                                    TaskProgressPayload {
                                         task_id: task_id_clone.clone(),
                                         progress: last_progress,
                                         speed: None,
@@ -276,7 +265,7 @@ pub fn start_pdf_compress(
             Ok(exit_status) if exit_status.success() => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    PdfProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 100.0,
                         speed: None,
@@ -290,7 +279,7 @@ pub fn start_pdf_compress(
             Ok(exit_status) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    PdfProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: last_progress,
                         speed: None,
@@ -304,7 +293,7 @@ pub fn start_pdf_compress(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    PdfProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: last_progress,
                         speed: None,
@@ -363,7 +352,7 @@ pub fn start_pdf_merge(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    PdfProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 0.0,
                         speed: None,
@@ -390,7 +379,7 @@ pub fn start_pdf_merge(
                                 last_progress = p;
                                 let _ = app_handle.emit(
                                     "task-progress",
-                                    PdfProgressPayload {
+                                    TaskProgressPayload {
                                         task_id: task_id_clone.clone(),
                                         progress: last_progress,
                                         speed: None,
@@ -412,7 +401,7 @@ pub fn start_pdf_merge(
             Ok(exit_status) if exit_status.success() => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    PdfProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: 100.0,
                         speed: None,
@@ -426,7 +415,7 @@ pub fn start_pdf_merge(
             Ok(exit_status) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    PdfProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: last_progress,
                         speed: None,
@@ -440,7 +429,7 @@ pub fn start_pdf_merge(
             Err(e) => {
                 let _ = app_handle.emit(
                     "task-progress",
-                    PdfProgressPayload {
+                    TaskProgressPayload {
                         task_id: task_id_clone,
                         progress: last_progress,
                         speed: None,

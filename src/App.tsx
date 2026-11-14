@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Sidebar } from './components/Sidebar';
-import { Header } from './components/Header';
+import { MacTitlebar } from './components/MacTitlebar';
 import { TaskQueue } from './components/TaskQueue';
+import { DashboardTab } from './components/tabs/DashboardTab';
 import { YouTubeTab } from './components/tabs/YouTubeTab';
 import { VideoTab } from './components/tabs/VideoTab';
 import { AudioTab } from './components/tabs/AudioTab';
@@ -17,11 +18,22 @@ export function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     return (localStorage.getItem('mm_theme') as 'light' | 'dark') || 'light';
   });
-  const [activeTab, setActiveTab] = useState<TabType>('youtube');
+  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   const [outputDir, setOutputDir] = useState<string>('');
   const [tasks, setTasks] = useState<MediaTask[]>([]);
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem('mm_sidebar_collapsed') === 'true';
+  });
+
+  const toggleSidebar = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('mm_sidebar_collapsed', String(next));
+      return next;
+    });
+  };
 
   // Sync theme with DOM and localStorage
   useEffect(() => {
@@ -330,29 +342,51 @@ export function App() {
   const activeTasksCount = tasks.filter((t) => t.status === 'processing' || t.status === 'pending').length;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#F8FAFD] dark:bg-[#131314] text-slate-800 dark:text-slate-100 font-sans transition-colors duration-200">
-      {/* Sidebar Navigation */}
-      <Sidebar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        engineStatus={engineStatus}
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#F6F7F9] dark:bg-[#121212] text-slate-800 dark:text-slate-100 font-sans transition-colors duration-200">
+      {/* Top macOS Titlebar */}
+      <MacTitlebar
+        outputDir={outputDir}
+        setOutputDir={setOutputDir}
+        activeTasksCount={activeTasksCount}
+        toggleQueueDrawer={() => setIsQueueOpen(!isQueueOpen)}
+        isQueueOpen={isQueueOpen}
+        theme={theme}
+        setTheme={setTheme}
+        isSidebarCollapsed={isSidebarCollapsed}
+        toggleSidebar={toggleSidebar}
       />
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top Header */}
-        <Header
-          outputDir={outputDir}
-          setOutputDir={setOutputDir}
-          activeTasksCount={activeTasksCount}
-          toggleQueueDrawer={() => setIsQueueOpen(!isQueueOpen)}
-          isQueueOpen={isQueueOpen}
-          theme={theme}
-          setTheme={setTheme}
+      {/* Main Container: Sidebar + Content */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* macOS Translucent Sidebar */}
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          engineStatus={engineStatus}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={toggleSidebar}
         />
 
         {/* Dynamic Tab Content */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
+          {activeTab === 'dashboard' && (
+            <DashboardTab
+              onNavigate={setActiveTab}
+              onQuickProcessVideo={handleStartVideoConversion}
+              onQuickProcessAudio={handleStartAudioConversion}
+              onQuickProcessPdf={(file, action) => {
+                if (action === 'docx') {
+                  handleStartPdfToDocx(file);
+                } else {
+                  handleStartPdfCompress(file, 'screen');
+                }
+              }}
+              onQuickProcessImage={(file, format, quality) =>
+                handleStartImageConversion(file, format, quality, 100)
+              }
+            />
+          )}
+
           {activeTab === 'youtube' && (
             <YouTubeTab
               engineStatus={engineStatus}
@@ -402,16 +436,16 @@ export function App() {
             />
           )}
         </main>
-
-        {/* Global Task Queue Drawer */}
-        <TaskQueue
-          tasks={tasks}
-          onClearCompleted={handleClearCompleted}
-          onRemoveTask={handleRemoveTask}
-          isOpen={isQueueOpen}
-          onClose={() => setIsQueueOpen(false)}
-        />
       </div>
+
+      {/* Global Task Queue Panel */}
+      <TaskQueue
+        tasks={tasks}
+        onClearCompleted={handleClearCompleted}
+        onRemoveTask={handleRemoveTask}
+        isOpen={isQueueOpen}
+        onClose={() => setIsQueueOpen(false)}
+      />
     </div>
   );
 }

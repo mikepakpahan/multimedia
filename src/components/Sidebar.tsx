@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Home,
   Video,
   Music,
   Image as ImageIcon,
@@ -7,146 +8,235 @@ import {
   Settings,
   CheckCircle2,
   AlertCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { YouTubeIcon } from './icons/YouTubeIcon';
-import { GoogleBrandIcon } from './icons/GoogleBrandIcon';
 import { TabType, EngineStatus } from '../types';
 
 interface SidebarProps {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
   engineStatus: EngineStatus | null;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   setActiveTab,
   engineStatus,
+  isCollapsed,
+  onToggleCollapse,
 }) => {
-  const menuItems = [
+  const sections = [
     {
-      id: 'youtube' as TabType,
-      label: 'YouTube & Audio',
-      icon: YouTubeIcon,
-      badge: 'Gereja / MIDI',
-      badgeClass: 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300 border border-red-200 dark:border-red-800/40',
+      title: 'UTAMA',
+      items: [
+        {
+          id: 'dashboard' as TabType,
+          label: 'Beranda (Dashboard)',
+          icon: Home,
+          badge: 'Mulai',
+          color: 'text-blue-500',
+        },
+      ],
     },
     {
-      id: 'video' as TabType,
-      label: 'Video Suite',
-      icon: Video,
+      title: 'MEDIA TOOLS',
+      items: [
+        {
+          id: 'youtube' as TabType,
+          label: 'YouTube & Musik',
+          icon: YouTubeIcon,
+          badge: 'Gereja',
+          color: 'text-red-500',
+        },
+        {
+          id: 'video' as TabType,
+          label: 'Video Converter',
+          icon: Video,
+          color: 'text-indigo-500',
+        },
+        {
+          id: 'audio' as TabType,
+          label: 'Audio Converter',
+          icon: Music,
+          color: 'text-purple-500',
+        },
+      ],
     },
     {
-      id: 'audio' as TabType,
-      label: 'Audio Suite',
-      icon: Music,
+      title: 'DOKUMEN & FOTO',
+      items: [
+        {
+          id: 'image' as TabType,
+          label: 'Kompres Gambar',
+          icon: ImageIcon,
+          color: 'text-emerald-500',
+        },
+        {
+          id: 'pdf' as TabType,
+          label: 'PDF ke Word & Tools',
+          icon: FileText,
+          color: 'text-amber-500',
+        },
+      ],
     },
     {
-      id: 'image' as TabType,
-      label: 'Image Studio',
-      icon: ImageIcon,
-    },
-    {
-      id: 'pdf' as TabType,
-      label: 'PDF & Dokumen',
-      icon: FileText,
-    },
-    {
-      id: 'settings' as TabType,
-      label: 'Pengaturan',
-      icon: Settings,
+      title: 'APLIKASI',
+      items: [
+        {
+          id: 'settings' as TabType,
+          label: 'Pengaturan',
+          icon: Settings,
+          color: 'text-slate-500',
+        },
+      ],
     },
   ];
 
   return (
-    <aside className="w-64 bg-[#F0F4F9] dark:bg-[#1E1F20] border-r border-[#E0E2EC] dark:border-[#444746]/60 flex flex-col justify-between h-screen shrink-0 select-none transition-colors duration-200">
-      {/* Brand Header */}
-      <div>
-        <div className="px-6 py-5 flex items-center gap-3">
-          <GoogleBrandIcon className="w-7 h-7 shrink-0" />
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-base font-medium tracking-tight text-slate-800 dark:text-slate-100">MultiMedia</span>
-              <span className="text-xs font-semibold px-1.5 py-0.2 rounded-md bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300">Studio</span>
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">All-in-One Desktop Tools</p>
-          </div>
+    <aside
+      className={`bg-[#F6F6F6]/90 dark:bg-[#1E1E1E]/90 backdrop-blur-2xl border-r border-black/[0.06] dark:border-white/[0.08] flex flex-col justify-between h-full shrink-0 select-none transition-all duration-200 ease-in-out ${
+        isCollapsed ? 'w-16' : 'w-60'
+      }`}
+    >
+      {/* Top Header / Navigation Sections */}
+      <div className="p-2.5 space-y-3 overflow-y-auto overflow-x-hidden">
+        {/* Sidebar Header with Toggle button */}
+        <div className={`flex items-center pb-1 ${isCollapsed ? 'justify-center' : 'justify-between px-2'}`}>
+          {!isCollapsed && (
+            <span className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 tracking-wider">
+              NAVIGASI
+            </span>
+          )}
+          <button
+            onClick={onToggleCollapse}
+            title={isCollapsed ? 'Bentangkan Sidebar (Lengkap)' : 'Lipat Sidebar (Ringkas)'}
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-neutral-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition cursor-pointer"
+          >
+            {isCollapsed ? (
+              <PanelLeftOpen className="w-4 h-4 text-blue-500" />
+            ) : (
+              <PanelLeftClose className="w-3.5 h-3.5" />
+            )}
+          </button>
         </div>
 
-        {/* Navigation Items (Google Material 3 Pill Style) */}
-        <nav className="px-3 py-2 space-y-1">
-          {menuItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center justify-between px-4 py-2.5 rounded-full text-left transition-all duration-150 ${
-                  isActive
-                    ? 'bg-[#C2E7FF] text-[#001D35] font-semibold dark:bg-[#004A77] dark:text-[#C2E7FF] shadow-xs'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-[#E3E8EF] dark:hover:bg-[#2D2E30] font-normal'
-                }`}
-              >
-                <div className="flex items-center gap-3.5">
-                  <Icon
-                    className={`w-5 h-5 shrink-0 ${
-                      isActive
-                        ? 'text-[#001D35] dark:text-[#C2E7FF]'
-                        : 'text-slate-500 dark:text-slate-400'
-                    }`}
-                  />
-                  <span className="text-sm">{item.label}</span>
-                </div>
+        {/* Navigation Groups */}
+        {sections.map((section, sIdx) => (
+          <div key={sIdx} className="space-y-1">
+            {!isCollapsed ? (
+              <h4 className="px-2 text-[10px] font-bold text-slate-400 dark:text-neutral-500 tracking-wider">
+                {section.title}
+              </h4>
+            ) : (
+              sIdx > 0 && <div className="h-px w-6 mx-auto bg-black/[0.06] dark:bg-white/[0.08] my-1.5" />
+            )}
 
-                {item.badge && (
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+            <div className="space-y-1">
+              {section.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    title={isCollapsed ? `${item.label}${item.badge ? ` (${item.badge})` : ''}` : undefined}
+                    className={`relative w-full flex items-center transition-all duration-150 cursor-pointer ${
+                      isCollapsed
+                        ? 'justify-center p-2 rounded-xl'
+                        : 'justify-between px-2.5 py-1.5 rounded-lg text-xs'
+                    } ${
                       isActive
-                        ? 'bg-white/80 text-blue-900 dark:bg-black/40 dark:text-blue-200'
-                        : item.badgeClass
+                        ? 'bg-blue-500 text-white font-medium shadow-xs'
+                        : 'text-slate-700 dark:text-neutral-300 hover:bg-black/[0.05] dark:hover:bg-white/[0.06]'
                     }`}
                   >
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
+                    <div className={`flex items-center gap-2.5 ${isCollapsed ? 'justify-center' : 'truncate'}`}>
+                      <Icon
+                        className={`w-4 h-4 shrink-0 ${
+                          isActive ? 'text-white' : item.color
+                        }`}
+                      />
+                      {!isCollapsed && <span className="truncate">{item.label}</span>}
+                    </div>
+
+                    {!isCollapsed && item.badge && (
+                      <span
+                        className={`text-[9px] px-1.5 py-0.2 rounded-md font-medium shrink-0 ${
+                          isActive
+                            ? 'bg-white/20 text-white'
+                            : 'bg-black/[0.05] dark:bg-white/[0.08] text-slate-500 dark:text-neutral-400'
+                        }`}
+                      >
+                        {item.badge}
+                      </span>
+                    )}
+
+                    {/* Dot indicator when collapsed if item has badge */}
+                    {isCollapsed && item.badge && !isActive && (
+                      <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-blue-500" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Engine Status at Bottom (Google Material Card style) */}
-      <div className="p-4 m-3 rounded-2xl bg-white dark:bg-[#28292A] border border-[#E0E2EC] dark:border-[#444746]/60 shadow-xs">
-        <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 tracking-wider uppercase mb-2 flex items-center justify-between">
-          <span>Engine Status</span>
-        </div>
-        <div className="space-y-1.5 text-xs">
-          <div className="flex items-center justify-between py-0.5">
-            <span className="text-slate-600 dark:text-slate-300">FFmpeg</span>
-            {engineStatus?.ffmpeg_installed ? (
-              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium text-[11px]">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Ready
+      {/* Engine Status at bottom */}
+      <div className={`border-t border-black/[0.06] dark:border-white/[0.06] ${isCollapsed ? 'p-2' : 'p-3'}`}>
+        {!isCollapsed ? (
+          <div className="p-2 rounded-xl bg-white/60 dark:bg-neutral-800/60 border border-black/[0.04] dark:border-white/[0.06] text-[11px] space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500 dark:text-neutral-400">FFmpeg:</span>
+              <span className="flex items-center gap-1 font-medium text-[10px]">
+                {engineStatus?.ffmpeg_installed ? (
+                  <span className="text-emerald-500 flex items-center gap-0.5">
+                    <CheckCircle2 className="w-3 h-3" /> Siap
+                  </span>
+                ) : (
+                  <span className="text-amber-500 flex items-center gap-0.5">
+                    <AlertCircle className="w-3 h-3" /> Standby
+                  </span>
+                )}
               </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium text-[11px]">
-                <AlertCircle className="w-3.5 h-3.5" /> Standby
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500 dark:text-neutral-400">yt-dlp:</span>
+              <span className="flex items-center gap-1 font-medium text-[10px]">
+                {engineStatus?.ytdlp_installed ? (
+                  <span className="text-emerald-500 flex items-center gap-0.5">
+                    <CheckCircle2 className="w-3 h-3" /> Siap
+                  </span>
+                ) : (
+                  <span className="text-amber-500 flex items-center gap-0.5">
+                    <AlertCircle className="w-3 h-3" /> Standby
+                  </span>
+                )}
               </span>
-            )}
+            </div>
           </div>
-          <div className="flex items-center justify-between py-0.5">
-            <span className="text-slate-600 dark:text-slate-300">yt-dlp</span>
-            {engineStatus?.ytdlp_installed ? (
-              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium text-[11px]">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Ready
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium text-[11px]">
-                <AlertCircle className="w-3.5 h-3.5" /> Standby
-              </span>
-            )}
+        ) : (
+          <div
+            title={`FFmpeg: ${engineStatus?.ffmpeg_installed ? 'Siap' : 'Standby'} | yt-dlp: ${engineStatus?.ytdlp_installed ? 'Siap' : 'Standby'}`}
+            className="p-2 rounded-xl bg-white/60 dark:bg-neutral-800/60 border border-black/[0.04] dark:border-white/[0.06] flex flex-col items-center gap-1.5 cursor-default"
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                engineStatus?.ffmpeg_installed ? 'bg-emerald-500' : 'bg-amber-500'
+              }`}
+            />
+            <span
+              className={`w-2 h-2 rounded-full ${
+                engineStatus?.ytdlp_installed ? 'bg-emerald-500' : 'bg-amber-500'
+              }`}
+            />
           </div>
-        </div>
+        )}
       </div>
     </aside>
   );
