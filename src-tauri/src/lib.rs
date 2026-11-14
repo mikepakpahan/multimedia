@@ -2,6 +2,7 @@ pub mod utils;
 pub mod youtube;
 pub mod media_converter;
 pub mod image_studio;
+pub mod pdf_suite;
 
 use std::path::Path;
 use std::process::Command;
@@ -64,7 +65,10 @@ pub fn run() {
             youtube::start_youtube_download,
             media_converter::start_video_conversion,
             media_converter::start_audio_conversion,
-            image_studio::process_image
+            image_studio::process_image,
+            pdf_suite::start_pdf_to_docx,
+            pdf_suite::start_pdf_compress,
+            pdf_suite::start_pdf_merge
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

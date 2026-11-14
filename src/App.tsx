@@ -212,6 +212,100 @@ export function App() {
     }
   };
 
+  const handleStartPdfToDocx = async (filePath: string) => {
+    const filename = filePath.split('\\').pop()?.split('/').pop() || filePath;
+    const taskId = `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newTask: MediaTask = {
+      id: taskId,
+      name: `PDF -> Word: ${filename}`,
+      type: 'pdf',
+      status: 'processing',
+      progress: 0,
+      targetFormat: 'DOCX',
+      createdAt: Date.now(),
+    };
+
+    setTasks((prev) => [newTask, ...prev]);
+    setIsQueueOpen(true);
+
+    try {
+      await invoke('start_pdf_to_docx', {
+        taskId,
+        inputPath: filePath,
+        outputDir,
+      });
+    } catch (err) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, status: 'failed', error: String(err) } : t
+        )
+      );
+    }
+  };
+
+  const handleStartPdfCompress = async (filePath: string, quality: string) => {
+    const filename = filePath.split('\\').pop()?.split('/').pop() || filePath;
+    const taskId = `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newTask: MediaTask = {
+      id: taskId,
+      name: `PDF Compress: ${filename}`,
+      type: 'pdf',
+      status: 'processing',
+      progress: 0,
+      targetFormat: `PDF (${quality.toUpperCase()})`,
+      createdAt: Date.now(),
+    };
+
+    setTasks((prev) => [newTask, ...prev]);
+    setIsQueueOpen(true);
+
+    try {
+      await invoke('start_pdf_compress', {
+        taskId,
+        inputPath: filePath,
+        qualityLevel: quality,
+        outputDir,
+      });
+    } catch (err) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, status: 'failed', error: String(err) } : t
+        )
+      );
+    }
+  };
+
+  const handleStartPdfMerge = async (filePaths: string[], outputFilename: string) => {
+    const taskId = `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newTask: MediaTask = {
+      id: taskId,
+      name: `PDF Merge (${filePaths.length} file): ${outputFilename}`,
+      type: 'pdf',
+      status: 'processing',
+      progress: 0,
+      targetFormat: 'PDF (MERGE)',
+      createdAt: Date.now(),
+    };
+
+    setTasks((prev) => [newTask, ...prev]);
+    setIsQueueOpen(true);
+
+    try {
+      await invoke('start_pdf_merge', {
+        taskId,
+        inputPaths: filePaths,
+        outputFilename,
+        outputDir,
+      });
+    } catch (err) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, status: 'failed', error: String(err) } : t
+        )
+      );
+    }
+  };
+
   const handleClearCompleted = () => {
     setTasks((prev) => prev.filter((t) => t.status !== 'completed' && t.status !== 'failed'));
   };
@@ -275,7 +369,14 @@ export function App() {
             />
           )}
 
-          {activeTab === 'pdf' && <PdfTab outputDir={outputDir} />}
+          {activeTab === 'pdf' && (
+            <PdfTab
+              outputDir={outputDir}
+              onStartToDocx={handleStartPdfToDocx}
+              onStartCompress={handleStartPdfCompress}
+              onStartMerge={handleStartPdfMerge}
+            />
+          )}
 
           {activeTab === 'settings' && (
             <SettingsTab
