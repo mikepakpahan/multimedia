@@ -1,50 +1,123 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { Sidebar } from './components/Sidebar';
+import { Header } from './components/Header';
+import { TaskQueue } from './components/TaskQueue';
+import { YouTubeTab } from './components/tabs/YouTubeTab';
+import { VideoTab } from './components/tabs/VideoTab';
+import { AudioTab } from './components/tabs/AudioTab';
+import { ImageTab } from './components/tabs/ImageTab';
+import { PdfTab } from './components/tabs/PdfTab';
+import { SettingsTab } from './components/tabs/SettingsTab';
+import { TabType, EngineStatus, MediaTask } from './types';
+import './App.css';
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+export function App() {
+  const [activeTab, setActiveTab] = useState<TabType>('youtube');
+  const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
+  const [outputDir, setOutputDir] = useState<string>('');
+  const [tasks, setTasks] = useState<MediaTask[]>([]);
+  const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  const fetchEngines = async () => {
+    try {
+      const status = await invoke<EngineStatus>('check_system_engines');
+      setEngineStatus(status);
+      if (!outputDir) {
+        setOutputDir(status.default_output_dir);
+      }
+    } catch (err) {
+      console.error('Failed to check system engines:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchEngines();
+  }, []);
+
+  const handleStartDownload = (url: string, format: string) => {
+    const newTask: MediaTask = {
+      id: Math.random().toString(36).substring(2, 9),
+      name: `YouTube: ${url.length > 35 ? url.substring(0, 35) + '...' : url}`,
+      type: 'youtube',
+      status: 'pending',
+      progress: 0,
+      targetFormat: format.toUpperCase(),
+      createdAt: Date.now(),
+    };
+
+    setTasks((prev) => [newTask, ...prev]);
+    setIsQueueOpen(true);
+  };
+
+  const handleClearCompleted = () => {
+    setTasks((prev) => prev.filter((t) => t.status !== 'completed' && t.status !== 'failed'));
+  };
+
+  const handleRemoveTask = (id: string) => {
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const activeTasksCount = tasks.filter((t) => t.status === 'processing' || t.status === 'pending').length;
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 font-sans">
+      {/* Sidebar Navigation */}
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        engineStatus={engineStatus}
+      />
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top Header */}
+        <Header
+          outputDir={outputDir}
+          setOutputDir={setOutputDir}
+          activeTasksCount={activeTasksCount}
+          toggleQueueDrawer={() => setIsQueueOpen(!isQueueOpen)}
+          isQueueOpen={isQueueOpen}
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+
+        {/* Dynamic Tab Content */}
+        <main className="flex-1 overflow-y-auto p-8">
+          {activeTab === 'youtube' && (
+            <YouTubeTab
+              engineStatus={engineStatus}
+              outputDir={outputDir}
+              onStartDownload={handleStartDownload}
+            />
+          )}
+
+          {activeTab === 'video' && <VideoTab outputDir={outputDir} />}
+
+          {activeTab === 'audio' && <AudioTab outputDir={outputDir} />}
+
+          {activeTab === 'image' && <ImageTab outputDir={outputDir} />}
+
+          {activeTab === 'pdf' && <PdfTab outputDir={outputDir} />}
+
+          {activeTab === 'settings' && (
+            <SettingsTab
+              engineStatus={engineStatus}
+              outputDir={outputDir}
+              setOutputDir={setOutputDir}
+              onRefreshEngines={fetchEngines}
+            />
+          )}
+        </main>
+
+        {/* Global Task Queue Drawer */}
+        <TaskQueue
+          tasks={tasks}
+          onClearCompleted={handleClearCompleted}
+          onRemoveTask={handleRemoveTask}
+          isOpen={isQueueOpen}
+          onClose={() => setIsQueueOpen(false)}
+        />
+      </div>
+    </div>
   );
 }
 
