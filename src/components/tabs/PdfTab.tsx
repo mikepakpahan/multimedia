@@ -74,15 +74,18 @@ export const PdfTab: React.FC<PdfTabProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-900/30 p-6 rounded-2xl">
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-xl bg-amber-600/20 border border-amber-500/30 flex items-center justify-center shrink-0">
-            <FileText className="w-6 h-6 text-amber-400" />
+      {/* Hero Banner (Google Style Simple & Elegant) */}
+      <div className="bg-white dark:bg-[#1E1F20] border border-[#E0E2EC] dark:border-[#444746]/60 p-6 md:p-8 rounded-3xl shadow-xs transition-colors">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+            <FileText className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white">PDF & Document Suite</h2>
-            <p className="text-sm text-slate-300">
-              Konversi dokumen/warta PDF menjadi Microsoft Word (.docx) editable dengan layout presisi, kompresi ukuran file, serta penggabungan PDF.
+            <h1 className="text-xl md:text-2xl font-normal text-slate-800 dark:text-slate-100 tracking-tight">
+              PDF & Document Suite
+            </h1>
+            <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
+              Konversi PDF ke Microsoft Word (.docx) dengan tata letak presisi, kompresi ukuran PDF, dan penggabungan dokumen.
             </p>
           </div>
         </div>
@@ -91,25 +94,25 @@ export const PdfTab: React.FC<PdfTabProps> = ({
       {/* File Dropzone / Picker */}
       <div
         onClick={handleSelectPdf}
-        className="border-2 border-dashed border-slate-700 hover:border-amber-500 bg-slate-900/50 hover:bg-slate-900/80 p-8 rounded-2xl text-center cursor-pointer transition space-y-3"
+        className="border-2 border-dashed border-[#C4C7C5] dark:border-[#444746] hover:border-amber-600 dark:hover:border-amber-400 bg-[#F8FAFD] dark:bg-[#28292A] p-8 rounded-3xl text-center cursor-pointer transition space-y-3"
       >
-        <div className="w-12 h-12 rounded-full bg-slate-800 text-amber-400 mx-auto flex items-center justify-center">
+        <div className="w-12 h-12 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 mx-auto flex items-center justify-center">
           <UploadCloud className="w-6 h-6" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-white">Klik untuk memilih file PDF</p>
-          <p className="text-xs text-slate-400 mt-1">Mendukung satu atau beberapa file PDF sekaligus</p>
+          <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Klik untuk memilih file PDF</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Mendukung satu atau beberapa dokumen PDF sekaligus</p>
         </div>
       </div>
 
       {/* Selected Files List */}
       {selectedFiles.length > 0 && (
-        <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl space-y-2">
-          <div className="flex items-center justify-between text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+        <div className="bg-white dark:bg-[#1E1F20] border border-[#E0E2EC] dark:border-[#444746]/60 p-5 rounded-3xl space-y-2.5">
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-2">
             <span>Daftar Dokumen PDF ({selectedFiles.length})</span>
             <button
               onClick={() => setSelectedFiles([])}
-              className="text-slate-400 hover:text-red-400 transition"
+              className="text-xs text-rose-600 hover:underline transition"
             >
               Hapus Semua
             </button>
@@ -118,15 +121,15 @@ export const PdfTab: React.FC<PdfTabProps> = ({
             {selectedFiles.map((file, idx) => (
               <div
                 key={idx}
-                className="flex items-center justify-between p-2.5 bg-slate-950/70 border border-slate-800 rounded-xl text-xs text-slate-200"
+                className="flex items-center justify-between p-2.5 bg-[#F8FAFD] dark:bg-[#28292A] border border-[#E0E2EC] dark:border-[#444746]/60 rounded-xl text-xs text-slate-800 dark:text-slate-200"
               >
                 <div className="flex items-center gap-2 truncate mr-2">
-                  <FileCode2 className="w-4 h-4 text-amber-400 shrink-0" />
+                  <FileCode2 className="w-4 h-4 text-amber-600 shrink-0" />
                   <span className="truncate" title={file}>{file}</span>
                 </div>
                 <button
                   onClick={() => handleRemoveFile(idx)}
-                  className="text-slate-400 hover:text-red-400 transition p-1"
+                  className="text-slate-400 hover:text-rose-500 transition p-1"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -137,67 +140,67 @@ export const PdfTab: React.FC<PdfTabProps> = ({
       )}
 
       {/* Options Card */}
-      <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl space-y-5">
+      <div className="bg-white dark:bg-[#1E1F20] border border-[#E0E2EC] dark:border-[#444746]/60 p-6 rounded-3xl space-y-5">
         <div className="space-y-2">
-          <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider block">
-            Pilih Aksi Pemrosesan
+          <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">
+            Pilih Aksi Dokumen
           </label>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             <div
               onClick={() => setAction('docx')}
-              className={`p-3.5 rounded-xl border cursor-pointer transition ${
+              className={`p-4 rounded-2xl border cursor-pointer transition ${
                 action === 'docx'
-                  ? 'bg-amber-600/15 border-amber-500 text-white shadow-md shadow-amber-500/10'
-                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                  ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/30 shadow-xs'
+                  : 'border-[#E0E2EC] dark:border-[#444746]/60 bg-[#F8FAFD] dark:bg-[#28292A] hover:bg-white dark:hover:bg-[#333538]'
               }`}
             >
-              <span className="text-xs font-bold block text-white mb-1">Convert to Word (.docx)</span>
-              <span className="text-[11px] text-slate-400 leading-tight block">
-                Pertahankan tata letak, tabel, dan gambar agar mudah diedit di Word.
+              <span className="text-xs font-bold block text-slate-900 dark:text-slate-100 mb-1">Convert to Word</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight block">
+                Pertahankan tata letak, tabel, dan gambar agar mudah diedit di Word (.docx).
               </span>
             </div>
 
             <div
               onClick={() => setAction('compress-screen')}
-              className={`p-3.5 rounded-xl border cursor-pointer transition ${
+              className={`p-4 rounded-2xl border cursor-pointer transition ${
                 action === 'compress-screen'
-                  ? 'bg-amber-600/15 border-amber-500 text-white shadow-md shadow-amber-500/10'
-                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                  ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/30 shadow-xs'
+                  : 'border-[#E0E2EC] dark:border-[#444746]/60 bg-[#F8FAFD] dark:bg-[#28292A] hover:bg-white dark:hover:bg-[#333538]'
               }`}
             >
-              <span className="text-xs font-bold block text-white mb-1">Kompresi Hemat (Screen)</span>
-              <span className="text-[11px] text-slate-400 leading-tight block">
-                Ukuran file sekecil mungkin, ideal untuk kirim via WA/Email.
+              <span className="text-xs font-bold block text-slate-900 dark:text-slate-100 mb-1">Kompresi Hemat</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight block">
+                Ukuran file sekecil mungkin, ideal untuk kirim via WhatsApp atau Email.
               </span>
             </div>
 
             <div
               onClick={() => setAction('compress-print')}
-              className={`p-3.5 rounded-xl border cursor-pointer transition ${
+              className={`p-4 rounded-2xl border cursor-pointer transition ${
                 action === 'compress-print'
-                  ? 'bg-amber-600/15 border-amber-500 text-white shadow-md shadow-amber-500/10'
-                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                  ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/30 shadow-xs'
+                  : 'border-[#E0E2EC] dark:border-[#444746]/60 bg-[#F8FAFD] dark:bg-[#28292A] hover:bg-white dark:hover:bg-[#333538]'
               }`}
             >
-              <span className="text-xs font-bold block text-white mb-1">Kompresi Standar (E-Book)</span>
-              <span className="text-[11px] text-slate-400 leading-tight block">
-                Kompresi seimbang tanpa mengurangi ketajaman teks saat dicetak.
+              <span className="text-xs font-bold block text-slate-900 dark:text-slate-100 mb-1">Kompresi Cetak</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight block">
+                Kualitas seimbang tanpa mengurangi ketajaman teks saat dicetak.
               </span>
             </div>
 
             <div
               onClick={() => setAction('merge')}
-              className={`p-3.5 rounded-xl border cursor-pointer transition ${
+              className={`p-4 rounded-2xl border cursor-pointer transition ${
                 action === 'merge'
-                  ? 'bg-amber-600/15 border-amber-500 text-white shadow-md shadow-amber-500/10'
-                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                  ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/30 shadow-xs'
+                  : 'border-[#E0E2EC] dark:border-[#444746]/60 bg-[#F8FAFD] dark:bg-[#28292A] hover:bg-white dark:hover:bg-[#333538]'
               }`}
             >
-              <span className="text-xs font-bold block text-white mb-1 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-amber-400" /> Gabungkan Dokumen
+              <span className="text-xs font-bold block text-slate-900 dark:text-slate-100 mb-1 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-amber-600" /> Gabungkan PDF
               </span>
-              <span className="text-[11px] text-slate-400 leading-tight block">
-                Satukan beberapa file PDF menjadi 1 file utuh.
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight block">
+                Satukan beberapa dokumen PDF menjadi 1 file utuh.
               </span>
             </div>
           </div>
@@ -205,24 +208,24 @@ export const PdfTab: React.FC<PdfTabProps> = ({
 
         {action === 'merge' && (
           <div className="space-y-1.5 pt-2">
-            <label className="text-xs text-slate-300 font-medium">Nama File PDF Gabungan:</label>
+            <label className="text-xs text-slate-600 dark:text-slate-300 font-medium">Nama File PDF Gabungan:</label>
             <input
               type="text"
               value={mergeFilename}
               onChange={(e) => setMergeFilename(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-xs text-white"
+              className="w-full bg-[#F0F4F9] dark:bg-[#28292A] border border-[#E0E2EC] dark:border-[#444746]/60 rounded-2xl px-4 py-2 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-amber-500"
             />
           </div>
         )}
 
-        <div className="pt-3 flex items-center justify-between border-t border-slate-800">
-          <div className="text-xs text-slate-400">
-            Tersimpan di: <span className="font-mono text-slate-300">{outputDir}</span>
+        <div className="pt-4 flex items-center justify-between border-t border-[#E0E2EC] dark:border-[#444746]/60">
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Tersimpan di: <span className="font-mono text-slate-700 dark:text-slate-300 font-medium">{outputDir}</span>
           </div>
           <button
             onClick={handleProcess}
             disabled={selectedFiles.length === 0 || (action === 'merge' && selectedFiles.length < 2)}
-            className="px-6 py-2.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-xl shadow-lg shadow-amber-600/30 flex items-center gap-2 transition"
+            className="px-7 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium text-sm rounded-full shadow-xs hover:shadow-md transition flex items-center gap-2"
           >
             <Play className="w-4 h-4" /> Proses Dokumen {selectedFiles.length > 0 ? `(${selectedFiles.length} File)` : ''}
           </button>

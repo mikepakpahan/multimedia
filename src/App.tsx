@@ -14,11 +14,24 @@ import { TabType, EngineStatus, MediaTask, YouTubeMetadata, ProgressPayload } fr
 import './App.css';
 
 export function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return (localStorage.getItem('mm_theme') as 'light' | 'dark') || 'light';
+  });
   const [activeTab, setActiveTab] = useState<TabType>('youtube');
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   const [outputDir, setOutputDir] = useState<string>('');
   const [tasks, setTasks] = useState<MediaTask[]>([]);
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
+
+  // Sync theme with DOM and localStorage
+  useEffect(() => {
+    localStorage.setItem('mm_theme', theme);
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
 
   const fetchEngines = async () => {
     try {
@@ -86,7 +99,7 @@ export function App() {
         taskId,
         url,
         formatPreset: format,
-        outputDir,
+        outputDir: outputDir || (engineStatus?.default_output_dir ?? ''),
       });
     } catch (err) {
       setTasks((prev) =>
@@ -125,7 +138,7 @@ export function App() {
         inputPath: filePath,
         targetFormat,
         preset,
-        outputDir,
+        outputDir: outputDir || (engineStatus?.default_output_dir ?? ''),
       });
     } catch (err) {
       setTasks((prev) =>
@@ -162,7 +175,7 @@ export function App() {
         inputPath: filePath,
         targetFormat,
         bitrate,
-        outputDir,
+        outputDir: outputDir || (engineStatus?.default_output_dir ?? ''),
       });
     } catch (err) {
       setTasks((prev) =>
@@ -201,7 +214,7 @@ export function App() {
         targetFormat,
         quality,
         scalePercent: scalePercent < 100 ? scalePercent : null,
-        outputDir,
+        outputDir: outputDir || (engineStatus?.default_output_dir ?? ''),
       });
     } catch (err) {
       setTasks((prev) =>
@@ -232,7 +245,7 @@ export function App() {
       await invoke('start_pdf_to_docx', {
         taskId,
         inputPath: filePath,
-        outputDir,
+        outputDir: outputDir || (engineStatus?.default_output_dir ?? ''),
       });
     } catch (err) {
       setTasks((prev) =>
@@ -264,7 +277,7 @@ export function App() {
         taskId,
         inputPath: filePath,
         qualityLevel: quality,
-        outputDir,
+        outputDir: outputDir || (engineStatus?.default_output_dir ?? ''),
       });
     } catch (err) {
       setTasks((prev) =>
@@ -295,7 +308,7 @@ export function App() {
         taskId,
         inputPaths: filePaths,
         outputFilename,
-        outputDir,
+        outputDir: outputDir || (engineStatus?.default_output_dir ?? ''),
       });
     } catch (err) {
       setTasks((prev) =>
@@ -317,7 +330,7 @@ export function App() {
   const activeTasksCount = tasks.filter((t) => t.status === 'processing' || t.status === 'pending').length;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 font-sans">
+    <div className="flex h-screen w-screen overflow-hidden bg-[#F8FAFD] dark:bg-[#131314] text-slate-800 dark:text-slate-100 font-sans transition-colors duration-200">
       {/* Sidebar Navigation */}
       <Sidebar
         activeTab={activeTab}
@@ -334,10 +347,12 @@ export function App() {
           activeTasksCount={activeTasksCount}
           toggleQueueDrawer={() => setIsQueueOpen(!isQueueOpen)}
           isQueueOpen={isQueueOpen}
+          theme={theme}
+          setTheme={setTheme}
         />
 
         {/* Dynamic Tab Content */}
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-6 md:p-8">
           {activeTab === 'youtube' && (
             <YouTubeTab
               engineStatus={engineStatus}
