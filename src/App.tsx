@@ -173,6 +173,45 @@ export function App() {
     }
   };
 
+  const handleStartImageConversion = async (
+    filePath: string,
+    targetFormat: string,
+    quality: number,
+    scalePercent: number
+  ) => {
+    const filename = filePath.split('\\').pop()?.split('/').pop() || filePath;
+    const taskId = `img-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newTask: MediaTask = {
+      id: taskId,
+      name: `Image: ${filename}`,
+      type: 'image',
+      status: 'processing',
+      progress: 0,
+      targetFormat: `${targetFormat.toUpperCase()} (${quality}%)`,
+      createdAt: Date.now(),
+    };
+
+    setTasks((prev) => [newTask, ...prev]);
+    setIsQueueOpen(true);
+
+    try {
+      await invoke('process_image', {
+        taskId,
+        inputPath: filePath,
+        targetFormat,
+        quality,
+        scalePercent: scalePercent < 100 ? scalePercent : null,
+        outputDir,
+      });
+    } catch (err) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, status: 'failed', error: String(err) } : t
+        )
+      );
+    }
+  };
+
   const handleClearCompleted = () => {
     setTasks((prev) => prev.filter((t) => t.status !== 'completed' && t.status !== 'failed'));
   };
@@ -229,7 +268,12 @@ export function App() {
             />
           )}
 
-          {activeTab === 'image' && <ImageTab outputDir={outputDir} />}
+          {activeTab === 'image' && (
+            <ImageTab
+              outputDir={outputDir}
+              onStartConversion={handleStartImageConversion}
+            />
+          )}
 
           {activeTab === 'pdf' && <PdfTab outputDir={outputDir} />}
 
