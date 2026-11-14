@@ -1,5 +1,6 @@
 pub mod utils;
 pub mod youtube;
+pub mod media_converter;
 
 use std::path::Path;
 use std::process::Command;
@@ -59,7 +60,9 @@ pub fn run() {
             check_system_engines,
             open_output_folder,
             youtube::fetch_youtube_metadata,
-            youtube::start_youtube_download
+            youtube::start_youtube_download,
+            media_converter::start_video_conversion,
+            media_converter::start_audio_conversion
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

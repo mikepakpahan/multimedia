@@ -99,6 +99,80 @@ export function App() {
     }
   };
 
+  const handleStartVideoConversion = async (
+    filePath: string,
+    targetFormat: string,
+    preset: string
+  ) => {
+    const filename = filePath.split('\\').pop()?.split('/').pop() || filePath;
+    const taskId = `vid-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newTask: MediaTask = {
+      id: taskId,
+      name: `Video: ${filename}`,
+      type: 'video',
+      status: 'processing',
+      progress: 0,
+      targetFormat: `${targetFormat.toUpperCase()} (${preset})`,
+      createdAt: Date.now(),
+    };
+
+    setTasks((prev) => [newTask, ...prev]);
+    setIsQueueOpen(true);
+
+    try {
+      await invoke('start_video_conversion', {
+        taskId,
+        inputPath: filePath,
+        targetFormat,
+        preset,
+        outputDir,
+      });
+    } catch (err) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, status: 'failed', error: String(err) } : t
+        )
+      );
+    }
+  };
+
+  const handleStartAudioConversion = async (
+    filePath: string,
+    targetFormat: string,
+    bitrate: string
+  ) => {
+    const filename = filePath.split('\\').pop()?.split('/').pop() || filePath;
+    const taskId = `aud-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newTask: MediaTask = {
+      id: taskId,
+      name: `Audio: ${filename}`,
+      type: 'audio',
+      status: 'processing',
+      progress: 0,
+      targetFormat: `${targetFormat.toUpperCase()} (${bitrate}k)`,
+      createdAt: Date.now(),
+    };
+
+    setTasks((prev) => [newTask, ...prev]);
+    setIsQueueOpen(true);
+
+    try {
+      await invoke('start_audio_conversion', {
+        taskId,
+        inputPath: filePath,
+        targetFormat,
+        bitrate,
+        outputDir,
+      });
+    } catch (err) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, status: 'failed', error: String(err) } : t
+        )
+      );
+    }
+  };
+
   const handleClearCompleted = () => {
     setTasks((prev) => prev.filter((t) => t.status !== 'completed' && t.status !== 'failed'));
   };
@@ -139,9 +213,21 @@ export function App() {
             />
           )}
 
-          {activeTab === 'video' && <VideoTab outputDir={outputDir} />}
+          {activeTab === 'video' && (
+            <VideoTab
+              outputDir={outputDir}
+              engineStatus={engineStatus}
+              onStartConversion={handleStartVideoConversion}
+            />
+          )}
 
-          {activeTab === 'audio' && <AudioTab outputDir={outputDir} />}
+          {activeTab === 'audio' && (
+            <AudioTab
+              outputDir={outputDir}
+              engineStatus={engineStatus}
+              onStartConversion={handleStartAudioConversion}
+            />
+          )}
 
           {activeTab === 'image' && <ImageTab outputDir={outputDir} />}
 
