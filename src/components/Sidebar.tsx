@@ -11,6 +11,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Wand2,
+  Subtitles,
 } from 'lucide-react';
 import { YouTubeIcon } from './icons/YouTubeIcon';
 import { TabType, EngineStatus } from '../types';
@@ -52,6 +53,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: YouTubeIcon,
           badge: 'Gereja',
           color: 'text-red-500',
+        },
+        {
+          id: 'transcribe' as TabType,
+          label: 'Transkrip Video',
+          icon: Subtitles,
+          badge: 'AI',
+          color: 'text-teal-500',
         },
         {
           id: 'video' as TabType,

@@ -10,9 +10,10 @@ import { VideoTab } from './components/tabs/VideoTab';
 import { AudioTab } from './components/tabs/AudioTab';
 import { ImageTab } from './components/tabs/ImageTab';
 import { BgRemoverTab } from './components/tabs/BgRemoverTab';
+import { TranscribeTab } from './components/tabs/TranscribeTab';
 import { PdfTab } from './components/tabs/PdfTab';
 import { SettingsTab } from './components/tabs/SettingsTab';
-import { TabType, EngineStatus, MediaTask, YouTubeMetadata, ProgressPayload } from './types';
+import { TabType, EngineStatus, MediaTask, YouTubeMetadata, ProgressPayload, TranscriptionResult } from './types';
 import './App.css';
 
 export function App() {
@@ -24,6 +25,10 @@ export function App() {
   const [outputDir, setOutputDir] = useState<string>('');
   const [tasks, setTasks] = useState<MediaTask[]>([]);
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
+  const [transcriptionResult, setTranscriptionResult] = useState<TranscriptionResult | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+  const [transcribeProgress, setTranscribeProgress] = useState<number>(0);
+  const [transcribeMessage, setTranscribeMessage] = useState<string>('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem('mm_sidebar_collapsed') === 'true';
   });
@@ -62,8 +67,15 @@ export function App() {
     fetchEngines();
 
     // Listen for real-time task progress events from Rust
-    const unlistenPromise = listen<ProgressPayload>('task-progress', (event) => {
+    const unlistenProgressPromise = listen<ProgressPayload>('task-progress', (event) => {
       const payload = event.payload;
+      if (payload.task_id.startsWith('tr-')) {
+        setTranscribeProgress(Math.round(payload.progress));
+        if (payload.message) setTranscribeMessage(payload.message);
+        if (payload.status === 'completed' || payload.status === 'failed') {
+          setIsTranscribing(false);
+        }
+      }
       setTasks((prev) =>
         prev.map((task) => {
           if (task.id === payload.task_id) {
@@ -82,8 +94,14 @@ export function App() {
       );
     });
 
+    const unlistenResultPromise = listen<TranscriptionResult>('transcription-result', (event) => {
+      setTranscriptionResult(event.payload);
+      setIsTranscribing(false);
+    });
+
     return () => {
-      unlistenPromise.then((unlisten) => unlisten());
+      unlistenProgressPromise.then((unlisten) => unlisten());
+      unlistenResultPromise.then((unlisten) => unlisten());
     };
   }, []);
 
@@ -275,6 +293,51 @@ export function App() {
     }
   };
 
+  const handleStartTranscription = async (
+    input: string,
+    model: string,
+    language: string,
+    titleHint?: string
+  ) => {
+    const isUrl = input.startsWith('http://') || input.startsWith('https://');
+    const filename = isUrl ? (titleHint || 'YouTube Video') : (input.split('\\').pop()?.split('/').pop() || input);
+    const taskId = `tr-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+    setIsTranscribing(true);
+    setTranscribeProgress(5);
+    setTranscribeMessage('Menyiapkan AI Speech-to-Text...');
+
+    const newTask: MediaTask = {
+      id: taskId,
+      name: `Transkrip: ${filename}`,
+      type: 'transcribe',
+      status: 'processing',
+      progress: 5,
+      targetFormat: `AI (${model.toUpperCase()})`,
+      createdAt: Date.now(),
+    };
+
+    setTasks((prev) => [newTask, ...prev]);
+    setIsQueueOpen(true);
+
+    try {
+      await invoke('start_transcription', {
+        taskId,
+        input,
+        model,
+        language,
+        outputDir: outputDir || (engineStatus?.default_output_dir ?? ''),
+      });
+    } catch (err) {
+      setIsTranscribing(false);
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, status: 'failed', error: String(err) } : t
+        )
+      );
+    }
+  };
+
   const handleStartPdfToDocx = async (filePath: string) => {
     const filename = filePath.split('\\').pop()?.split('/').pop() || filePath;
     const taskId = `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
@@ -433,6 +496,18 @@ export function App() {
               engineStatus={engineStatus}
               outputDir={outputDir}
               onStartDownload={handleStartDownload}
+            />
+          )}
+
+          {activeTab === 'transcribe' && (
+            <TranscribeTab
+              outputDir={outputDir}
+              engineStatus={engineStatus}
+              onStartTranscription={handleStartTranscription}
+              activeResult={transcriptionResult}
+              isProcessing={isTranscribing}
+              currentProgress={transcribeProgress}
+              currentMessage={transcribeMessage}
             />
           )}
 

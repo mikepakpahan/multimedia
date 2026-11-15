@@ -1,4 +1,4 @@
-export type TabType = 'dashboard' | 'youtube' | 'video' | 'audio' | 'image' | 'bgremover' | 'pdf' | 'settings';
+export type TabType = 'dashboard' | 'youtube' | 'video' | 'audio' | 'transcribe' | 'image' | 'bgremover' | 'pdf' | 'settings';
 
 export interface EngineStatus {
   ffmpeg_installed: boolean;
@@ -30,7 +30,7 @@ export interface ProgressPayload {
 export interface MediaTask {
   id: string;
   name: string;
-  type: 'youtube' | 'video' | 'audio' | 'image' | 'pdf' | 'bgremover';
+  type: 'youtube' | 'video' | 'audio' | 'image' | 'pdf' | 'bgremover' | 'transcribe';
   status: 'pending' | 'processing' | 'completed' | 'failed';
   progress: number; // 0 - 100
   targetFormat: string;
@@ -40,4 +40,27 @@ export interface MediaTask {
   error?: string;
   thumbnail?: string;
   createdAt: number;
+}
+
+export interface TranscriptSegment {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface ExportedFiles {
+  txt?: string;
+  srt?: string;
+  vtt?: string;
+  json?: string;
+}
+
+export interface TranscriptionResult {
+  task_id: string;
+  title: string;
+  language: string;
+  duration: number;
+  full_text: string;
+  segments: TranscriptSegment[];
+  exported_files?: ExportedFiles;
 }

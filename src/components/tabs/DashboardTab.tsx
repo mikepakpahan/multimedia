@@ -9,6 +9,7 @@ import {
   Image as ImageIcon,
   Music,
   Wand2,
+  Subtitles,
 } from 'lucide-react';
 import { YouTubeIcon } from '../icons/YouTubeIcon';
 import { TabType } from '../../types';
@@ -90,6 +91,15 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       accent: 'from-amber-500/10 to-amber-500/5 text-amber-500 border-amber-500/20',
       tag: 'Format Rapi',
       tagColor: 'bg-amber-500 text-white',
+    },
+    {
+      title: 'Transkrip Video & YouTube',
+      desc: 'Ubah percakapan video/audio atau link YouTube jadi teks rapi & subtitle SRT dengan AI.',
+      tab: 'transcribe' as TabType,
+      icon: Subtitles,
+      accent: 'from-teal-500/10 to-teal-500/5 text-teal-500 border-teal-500/20',
+      tag: 'AI Speech-to-Text',
+      tagColor: 'bg-teal-500 text-white',
     },
     {
       title: 'Hapus Background & Pas Foto',

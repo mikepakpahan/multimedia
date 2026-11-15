@@ -3,6 +3,7 @@ pub mod youtube;
 pub mod media_converter;
 pub mod image_studio;
 pub mod pdf_suite;
+pub mod transcriber;
 
 use std::path::Path;
 use std::process::Command;
@@ -98,7 +99,8 @@ pub fn run() {
             image_studio::save_image_from_base64,
             pdf_suite::start_pdf_to_docx,
             pdf_suite::start_pdf_compress,
-            pdf_suite::start_pdf_merge
+            pdf_suite::start_pdf_merge,
+            transcriber::start_transcription
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
