@@ -24,11 +24,17 @@ pub struct ExportedFiles {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TranscriptionResultPayload {
+    #[serde(default)]
     pub task_id: String,
+    #[serde(default)]
     pub title: String,
+    #[serde(default)]
     pub language: String,
+    #[serde(default)]
     pub duration: f64,
+    #[serde(default)]
     pub full_text: String,
+    #[serde(default)]
     pub segments: Vec<TranscriptSegment>,
     pub exported_files: Option<ExportedFiles>,
 }
@@ -93,7 +99,9 @@ pub fn start_transcription(
             .arg("--language")
             .arg(&language)
             .arg("--output-dir")
-            .arg(&out_dir);
+            .arg(&out_dir)
+            .arg("--task-id")
+            .arg(&task_id_clone);
 
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
@@ -122,6 +130,17 @@ pub fn start_transcription(
                 return;
             }
         };
+
+        // Drain stderr in background to avoid pipe deadlocks and capture error messages
+        let err_pipe = child.stderr.take();
+        let stderr_thread = std::thread::spawn(move || {
+            let mut err_str = String::new();
+            if let Some(mut pipe) = err_pipe {
+                use std::io::Read;
+                let _ = pipe.read_to_string(&mut err_str);
+            }
+            err_str
+        });
 
         let mut json_raw = String::new();
         let mut final_txt_path = None;
@@ -157,35 +176,63 @@ pub fn start_transcription(
 
         let status = child.wait();
         let success = status.map(|s| s.success()).unwrap_or(false);
+        let err_output = stderr_thread.join().unwrap_or_default();
 
         if success && !json_raw.is_empty() {
-            if let Ok(mut parsed) = serde_json::from_str::<TranscriptionResultPayload>(&json_raw) {
-                parsed.task_id = task_id_clone.clone();
+            match serde_json::from_str::<TranscriptionResultPayload>(&json_raw) {
+                Ok(mut parsed) => {
+                    if parsed.task_id.is_empty() {
+                        parsed.task_id = task_id_clone.clone();
+                    }
 
-                if let Some(ref files) = parsed.exported_files {
-                    final_txt_path = files.txt.clone();
+                    if let Some(ref files) = parsed.exported_files {
+                        final_txt_path = files.txt.clone();
+                    }
+
+                    // Emit full result event for the UI transcript viewer
+                    let _ = app_handle.emit("transcription-result", parsed);
+
+                    let _ = app_handle.emit(
+                        "task-progress",
+                        TaskProgressPayload {
+                            task_id: task_id_clone,
+                            progress: 100.0,
+                            speed: None,
+                            eta: None,
+                            status: "completed".to_string(),
+                            message: Some("Transkripsi berhasil diselesaikan!".to_string()),
+                            output_path: final_txt_path,
+                        },
+                    );
+                    return;
                 }
-
-                // Emit full result event for the UI transcript viewer
-                let _ = app_handle.emit("transcription-result", parsed);
-
-                let _ = app_handle.emit(
-                    "task-progress",
-                    TaskProgressPayload {
-                        task_id: task_id_clone,
-                        progress: 100.0,
-                        speed: None,
-                        eta: None,
-                        status: "completed".to_string(),
-                        message: Some("Transkripsi berhasil diselesaikan!".to_string()),
-                        output_path: final_txt_path,
-                    },
-                );
-                return;
+                Err(e) => {
+                    eprintln!("Deserialization error for transcription JSON: {}", e);
+                    let _ = app_handle.emit(
+                        "task-progress",
+                        TaskProgressPayload {
+                            task_id: task_id_clone,
+                            progress: 0.0,
+                            speed: None,
+                            eta: None,
+                            status: "failed".to_string(),
+                            message: Some(format!("Gagal membaca data hasil transkripsi: {}", e)),
+                            output_path: None,
+                        },
+                    );
+                    return;
+                }
             }
         }
 
         // If failed
+        let err_msg = if !err_output.trim().is_empty() {
+            let last_line = err_output.trim().lines().last().unwrap_or("").to_string();
+            format!("Gagal transkripsi: {}", last_line)
+        } else {
+            "Gagal memproses transkripsi video. Pastikan format video/link valid.".to_string()
+        };
+
         let _ = app_handle.emit(
             "task-progress",
             TaskProgressPayload {
@@ -194,7 +241,7 @@ pub fn start_transcription(
                 speed: None,
                 eta: None,
                 status: "failed".to_string(),
-                message: Some("Gagal memproses transkripsi video. Pastikan format video/link valid.".to_string()),
+                message: Some(err_msg),
                 output_path: None,
             },
         );

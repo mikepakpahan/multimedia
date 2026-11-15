@@ -15,6 +15,7 @@ import {
   RefreshCw,
   FileText,
   Sliders,
+  AlertCircle,
 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
@@ -34,6 +35,7 @@ interface TranscribeTabProps {
   isProcessing: boolean;
   currentProgress: number;
   currentMessage: string;
+  errorMessage?: string | null;
 }
 
 export const TranscribeTab: React.FC<TranscribeTabProps> = ({
@@ -43,6 +45,7 @@ export const TranscribeTab: React.FC<TranscribeTabProps> = ({
   isProcessing,
   currentProgress,
   currentMessage,
+  errorMessage,
 }) => {
   const [sourceType, setSourceType] = useState<'local' | 'youtube'>('local');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -352,6 +355,21 @@ export const TranscribeTab: React.FC<TranscribeTabProps> = ({
                 className="bg-teal-600 h-2 rounded-full transition-all duration-300"
                 style={{ width: `${Math.max(5, currentProgress)}%` }}
               />
+            </div>
+          </div>
+        )}
+
+        {/* Error Alert Box */}
+        {errorMessage && !isProcessing && (
+          <div className="p-4 rounded-2xl bg-rose-50/90 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-start gap-3 animate-fadeIn">
+            <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h4 className="text-xs font-bold text-rose-800 dark:text-rose-300">
+                Transkripsi Belum Berhasil
+              </h4>
+              <p className="text-xs text-rose-600 dark:text-rose-400">
+                {errorMessage}
+              </p>
             </div>
           </div>
         )}

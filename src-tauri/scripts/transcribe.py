@@ -13,6 +13,15 @@ import json
 import argparse
 import tempfile
 import urllib.request
+import shutil
+
+# Ensure UTF-8 output on Windows console
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 def format_timestamp_srt(seconds: float) -> str:
     hrs = int(seconds // 3600)
@@ -178,22 +187,30 @@ def download_youtube_audio(url: str, temp_dir: str):
     import yt_dlp
     print("PROGRESS:25:Mengunduh audio video YouTube...", flush=True)
     out_template = os.path.join(temp_dir, 'yt_audio.%(ext)s')
+    ffmpeg_bin = shutil.which('ffmpeg')
     ydl_opts = {
         'format': 'ba/b',
         'outtmpl': out_template,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '128',
-        }],
         'quiet': True,
         'no_warnings': True,
     }
+    if ffmpeg_bin:
+        ydl_opts['ffmpeg_location'] = os.path.dirname(ffmpeg_bin)
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         title = info.get('title', 'YouTube Video')
         duration = info.get('duration', 0)
-        audio_file = os.path.join(temp_dir, 'yt_audio.mp3')
+        
+        # Locate downloaded audio file
+        downloaded_files = [
+            os.path.join(temp_dir, f) for f in os.listdir(temp_dir)
+            if os.path.isfile(os.path.join(temp_dir, f)) and not f.endswith('.part')
+        ]
+        if not downloaded_files:
+            raise RuntimeError("Gagal mengunduh file audio dari YouTube.")
+            
+        audio_file = downloaded_files[0]
         return audio_file, title, duration
 
 def run_whisper_transcription(audio_path: str, model_size: str = 'base', language: str = 'auto'):
@@ -241,6 +258,7 @@ def save_exports(result: dict, output_dir: str, base_filename: str):
     
     segments = result.get('segments', [])
     full_text = '\n\n'.join(s['text'] for s in segments)
+    result['full_text'] = full_text
     
     # 1. Plain Text (.txt)
     txt_path = os.path.join(output_dir, f"{clean_stem}.txt")
@@ -283,6 +301,7 @@ def main():
     parser.add_argument("--model", default="base", choices=["tiny", "base", "small"], help="Whisper model size")
     parser.add_argument("--language", default="auto", help="Language code ('auto', 'id', 'en', etc.)")
     parser.add_argument("--output-dir", required=True, help="Output directory to save transcript files")
+    parser.add_argument("--task-id", default="", help="Task ID from client")
     parser.add_argument("--force-ai", action="store_true", help="Force Whisper AI transcription even if YouTube subtitles exist")
     
     args = parser.parse_args()
@@ -334,10 +353,12 @@ def main():
             print("ERROR: Tidak ada ucapan atau kata yang terdeteksi dalam video ini.", file=sys.stderr)
             sys.exit(1)
             
+        result['task_id'] = args.task_id
+        result['full_text'] = '\n\n'.join(s['text'] for s in result['segments'])
+        
         print("PROGRESS:96:Menyimpan dokumen transkrip (.txt, .srt, .vtt)...", flush=True)
         files = save_exports(result, args.output_dir, result.get('title') or title)
         result['exported_files'] = files
-        result['full_text'] = '\n\n'.join(s['text'] for s in result['segments'])
         
         print("PROGRESS:100:Transkripsi Selesai!", flush=True)
         print(f"JSON_RESULT:{json.dumps(result, ensure_ascii=False)}", flush=True)

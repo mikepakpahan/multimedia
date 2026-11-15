@@ -29,6 +29,7 @@ export function App() {
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
   const [transcribeProgress, setTranscribeProgress] = useState<number>(0);
   const [transcribeMessage, setTranscribeMessage] = useState<string>('');
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem('mm_sidebar_collapsed') === 'true';
   });
@@ -72,8 +73,12 @@ export function App() {
       if (payload.task_id.startsWith('tr-')) {
         setTranscribeProgress(Math.round(payload.progress));
         if (payload.message) setTranscribeMessage(payload.message);
-        if (payload.status === 'completed' || payload.status === 'failed') {
+        if (payload.status === 'completed') {
           setIsTranscribing(false);
+          setTranscribeError(null);
+        } else if (payload.status === 'failed') {
+          setIsTranscribing(false);
+          setTranscribeError(payload.message || 'Gagal memproses transkripsi video.');
         }
       }
       setTasks((prev) =>
@@ -306,6 +311,7 @@ export function App() {
     setIsTranscribing(true);
     setTranscribeProgress(5);
     setTranscribeMessage('Menyiapkan AI Speech-to-Text...');
+    setTranscribeError(null);
 
     const newTask: MediaTask = {
       id: taskId,
@@ -508,6 +514,7 @@ export function App() {
               isProcessing={isTranscribing}
               currentProgress={transcribeProgress}
               currentMessage={transcribeMessage}
+              errorMessage={transcribeError}
             />
           )}
 
