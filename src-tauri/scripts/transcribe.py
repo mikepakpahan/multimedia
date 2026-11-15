@@ -300,7 +300,7 @@ def main():
     parser.add_argument("--input", required=True, help="Input video/audio file path or YouTube URL")
     parser.add_argument("--model", default="base", choices=["tiny", "base", "small"], help="Whisper model size")
     parser.add_argument("--language", default="auto", help="Language code ('auto', 'id', 'en', etc.)")
-    parser.add_argument("--output-dir", required=True, help="Output directory to save transcript files")
+    parser.add_argument("--output-dir", required=False, default=None, help="Output directory to save transcript files")
     parser.add_argument("--task-id", default="", help="Task ID from client")
     parser.add_argument("--force-ai", action="store_true", help="Force Whisper AI transcription even if YouTube subtitles exist")
     
@@ -356,9 +356,13 @@ def main():
         result['task_id'] = args.task_id
         result['full_text'] = '\n\n'.join(s['text'] for s in result['segments'])
         
-        print("PROGRESS:96:Menyimpan dokumen transkrip (.txt, .srt, .vtt)...", flush=True)
-        files = save_exports(result, args.output_dir, result.get('title') or title)
-        result['exported_files'] = files
+        # Only save files if an output-dir is explicitly specified
+        if args.output_dir and args.output_dir.strip():
+            print("PROGRESS:96:Menyimpan dokumen transkrip...", flush=True)
+            files = save_exports(result, args.output_dir.strip(), result.get('title') or title)
+            result['exported_files'] = files
+        else:
+            result['exported_files'] = None
         
         print("PROGRESS:100:Transkripsi Selesai!", flush=True)
         print(f"JSON_RESULT:{json.dumps(result, ensure_ascii=False)}", flush=True)

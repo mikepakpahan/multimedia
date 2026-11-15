@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Subtitles,
   UploadCloud,
@@ -16,6 +16,8 @@ import {
   FileText,
   Sliders,
   AlertCircle,
+  Download,
+  CheckCircle2,
 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
@@ -55,6 +57,68 @@ export const TranscribeTab: React.FC<TranscribeTabProps> = ({
   const [viewMode, setViewMode] = useState<'full' | 'segments'>('full');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
+
+  // Save As / Export options state
+  const [exportFormat, setExportFormat] = useState<'txt' | 'srt' | 'vtt' | 'json' | 'all'>('txt');
+  const [exportFilename, setExportFilename] = useState<string>('');
+  const [customFolder, setCustomFolder] = useState<string>('');
+  const [isSavingFile, setIsSavingFile] = useState<boolean>(false);
+  const [savedFilePath, setSavedFilePath] = useState<string | null>(null);
+  const [saveFileError, setSaveFileError] = useState<string | null>(null);
+
+  // Sync default export filename whenever activeResult changes
+  useEffect(() => {
+    if (activeResult) {
+      const clean = activeResult.title.replace(/[\\/*?:"<>|]/g, '_').trim();
+      setExportFilename(clean || 'transkrip');
+      setSavedFilePath(null);
+      setSaveFileError(null);
+    }
+  }, [activeResult]);
+
+  const targetFolder = customFolder || outputDir;
+
+  const handlePickCustomFolder = async () => {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Pilih Folder Tujuan Simpan File Transkrip',
+        defaultPath: targetFolder,
+      });
+      if (selected && typeof selected === 'string') {
+        setCustomFolder(selected);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSaveTranscription = async () => {
+    if (!activeResult) return;
+    setIsSavingFile(true);
+    setSaveFileError(null);
+    setSavedFilePath(null);
+
+    try {
+      const savedPath = await invoke<string>('save_transcription_file', {
+        outputDir: targetFolder,
+        filename: exportFilename.trim() || activeResult.title,
+        format: exportFormat,
+        title: activeResult.title,
+        language: activeResult.language,
+        duration: activeResult.duration,
+        full_text: activeResult.full_text,
+        segments: activeResult.segments,
+      });
+
+      setSavedFilePath(savedPath);
+    } catch (err) {
+      setSaveFileError(String(err));
+    } finally {
+      setIsSavingFile(false);
+    }
+  };
 
   const handlePickLocalFile = async () => {
     try {
@@ -410,9 +474,9 @@ export const TranscribeTab: React.FC<TranscribeTabProps> = ({
               </button>
 
               <button
-                onClick={() => handleOpenFolder(activeResult.exported_files?.txt)}
+                onClick={() => handleOpenFolder(targetFolder)}
                 className="px-3.5 py-2 rounded-xl border border-black/[0.08] dark:border-white/[0.1] text-xs font-semibold text-slate-700 dark:text-neutral-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition flex items-center gap-1.5 cursor-pointer"
-                title="Buka file hasil di Windows Explorer"
+                title="Buka folder tujuan di Windows Explorer"
               >
                 <FolderOpen className="w-3.5 h-3.5" />
                 <span>Buka Folder</span>
@@ -512,22 +576,201 @@ export const TranscribeTab: React.FC<TranscribeTabProps> = ({
             )}
           </div>
 
-          {/* Export Formats Badge Bar */}
-          {activeResult.exported_files && (
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-500">
-              <span className="text-[11px]">Format file otomatis tersimpan di folder:</span>
+          {/* Section: Save As / Export Options */}
+          <div className="pt-5 border-t border-black/[0.06] dark:border-white/[0.08] space-y-4">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                {['TXT', 'SRT', 'VTT', 'JSON'].map((fmt) => (
-                  <span
-                    key={fmt}
-                    className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-neutral-800 font-mono text-[10px] font-bold text-slate-700 dark:text-neutral-300 border border-black/[0.06] dark:border-white/[0.08]"
-                  >
-                    .{fmt.toLowerCase()}
-                  </span>
-                ))}
+                <span className="w-5 h-5 rounded-full bg-teal-500 text-white text-[11px] font-bold flex items-center justify-center">
+                  <Download className="w-3 h-3 stroke-[3]" />
+                </span>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-neutral-200">
+                    Simpan Hasil Transkrip (Save As)
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-neutral-400">
+                    Pilih format yang Anda butuhkan sebelum disimpan ke komputer agar tidak memenuhi memori.
+                  </p>
+                </div>
               </div>
             </div>
-          )}
+
+            {/* Format Options Selector Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+              {[
+                {
+                  id: 'txt' as const,
+                  label: 'Dokumen Teks (.txt)',
+                  desc: 'Teks bersih & rapi untuk dibaca atau disalin ke Word',
+                  extBadge: '.txt',
+                },
+                {
+                  id: 'srt' as const,
+                  label: 'Subtitle Video (.srt)',
+                  desc: 'Format subtitle standar pemutar video (VLC, Premiere, CapCut)',
+                  extBadge: '.srt',
+                },
+                {
+                  id: 'vtt' as const,
+                  label: 'Web Subtitle (.vtt)',
+                  desc: 'Format subtitle standar web & pemutar HTML5',
+                  extBadge: '.vtt',
+                },
+                {
+                  id: 'json' as const,
+                  label: 'Data JSON (.json)',
+                  desc: 'Data terstruktur dengan timestamp dan durasi per kalimat',
+                  extBadge: '.json',
+                },
+                {
+                  id: 'all' as const,
+                  label: 'Semua Format Sekaligus',
+                  desc: 'Simpan TXT, SRT, VTT, dan JSON sekaligus (arsip lengkap)',
+                  extBadge: '4 file',
+                },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setExportFormat(opt.id)}
+                  className={`p-3 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                    exportFormat === opt.id
+                      ? 'border-teal-500 bg-teal-50/80 dark:bg-teal-950/40 text-teal-900 dark:text-teal-200 shadow-2xs'
+                      : 'border-black/[0.06] dark:border-white/[0.08] hover:border-black/[0.15] dark:hover:border-white/[0.15] bg-white/50 dark:bg-neutral-800/50 text-slate-700 dark:text-neutral-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <span className="font-semibold text-xs truncate">{opt.label}</span>
+                    <span
+                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md font-bold ${
+                        exportFormat === opt.id
+                          ? 'bg-teal-600 text-white'
+                          : 'bg-black/[0.05] dark:bg-white/[0.08] text-slate-600 dark:text-neutral-400'
+                      }`}
+                    >
+                      {opt.extBadge}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-neutral-400 leading-snug">
+                    {opt.desc}
+                  </p>
+                </button>
+              ))}
+            </div>
+
+            {/* Filename & Target Folder Config */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              {/* Filename Input */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-neutral-400 block">
+                  Nama File Simpan:
+                </label>
+                <div className="flex items-center gap-1.5 bg-white dark:bg-neutral-800 border border-black/[0.08] dark:border-white/[0.1] rounded-xl px-3 py-1.5 shadow-2xs focus-within:ring-2 focus-within:ring-teal-500">
+                  <input
+                    type="text"
+                    value={exportFilename}
+                    onChange={(e) => setExportFilename(e.target.value)}
+                    placeholder="Nama file transkrip..."
+                    className="w-full text-xs bg-transparent text-slate-800 dark:text-neutral-100 focus:outline-none"
+                  />
+                  <span className="text-[10px] font-mono text-teal-600 dark:text-teal-400 font-bold bg-teal-50 dark:bg-teal-950/60 px-2 py-0.5 rounded-md shrink-0">
+                    {exportFormat === 'all' ? '.* (4 file)' : `.${exportFormat}`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Target Folder */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-neutral-400 block">
+                  Folder Tujuan:
+                </label>
+                <div className="flex items-center gap-2">
+                  <div
+                    className="flex-1 text-xs truncate bg-black/[0.03] dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.08] rounded-xl px-3 py-1.5 text-slate-700 dark:text-neutral-300 font-mono"
+                    title={targetFolder}
+                  >
+                    {targetFolder.split('\\').pop() || targetFolder}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handlePickCustomFolder}
+                    className="px-3 py-1.5 text-xs rounded-xl border border-black/[0.08] dark:border-white/[0.1] text-slate-700 dark:text-neutral-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition font-medium cursor-pointer shrink-0"
+                  >
+                    Pilih Folder...
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Save Action Button */}
+            <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="text-[11px] text-slate-500 dark:text-neutral-400">
+                Pilih format yang sesuai, lalu klik tombol simpan untuk mengekspor.
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveTranscription}
+                disabled={isSavingFile || !exportFilename.trim()}
+                className="px-6 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white font-semibold text-xs shadow-xs hover:shadow transition flex items-center justify-center gap-2 cursor-pointer shrink-0"
+              >
+                {isSavingFile ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Menyimpan File...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>Simpan Format {exportFormat.toUpperCase()}</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Save Error Alert */}
+            {saveFileError && (
+              <div className="p-3.5 rounded-2xl bg-rose-50/90 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-start gap-2.5 animate-fadeIn text-xs text-rose-700 dark:text-rose-300">
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                <span>Gagal menyimpan: {saveFileError}</span>
+              </div>
+            )}
+
+            {/* Success Banner with Open File / Open Folder */}
+            {savedFilePath && (
+              <div className="p-4 rounded-2xl bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fadeIn">
+                <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0" />
+                  <div className="min-w-0">
+                    <h4 className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
+                      File Berhasil Disimpan!
+                    </h4>
+                    <p className="text-[11px] text-emerald-700 dark:text-emerald-300 truncate font-mono" title={savedFilePath}>
+                      {savedFilePath}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenFolder(savedFilePath)}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Buka File</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenFolder(targetFolder)}
+                    className="px-3 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/30 text-xs font-medium transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    <span>Buka Folder</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

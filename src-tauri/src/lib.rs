@@ -100,7 +100,8 @@ pub fn run() {
             pdf_suite::start_pdf_to_docx,
             pdf_suite::start_pdf_compress,
             pdf_suite::start_pdf_merge,
-            transcriber::start_transcription
+            transcriber::start_transcription,
+            transcriber::save_transcription_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

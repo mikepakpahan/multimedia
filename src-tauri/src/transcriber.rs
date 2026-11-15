@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -65,7 +65,7 @@ pub fn start_transcription(
     input: String, // file path or YouTube URL
     model: String, // "tiny", "base", "small"
     language: String, // "auto", "id", "en"
-    output_dir: String,
+    _output_dir: String,
 ) -> Result<(), String> {
     let python_exec = find_executable("python")
         .ok_or_else(|| "Python 3 tidak ditemukan. Pastikan Python terinstall untuk menjalankan AI Speech-to-Text.".to_string())?;
@@ -74,7 +74,6 @@ pub fn start_transcription(
 
     let app_handle = app.clone();
     let task_id_clone = task_id.clone();
-    let out_dir = output_dir.clone();
 
     std::thread::spawn(move || {
         let _ = app_handle.emit(
@@ -98,8 +97,6 @@ pub fn start_transcription(
             .arg(&model)
             .arg("--language")
             .arg(&language)
-            .arg("--output-dir")
-            .arg(&out_dir)
             .arg("--task-id")
             .arg(&task_id_clone);
 
@@ -248,4 +245,147 @@ pub fn start_transcription(
     });
 
     Ok(())
+}
+
+fn format_timestamp_srt(seconds: f64) -> String {
+    let hrs = (seconds / 3600.0) as u32;
+    let mins = ((seconds % 3600.0) / 60.0) as u32;
+    let secs = (seconds % 60.0) as u32;
+    let msecs = ((seconds - seconds.floor()) * 1000.0).round() as u32;
+    format!("{:02}:{:02}:{:02},{:03}", hrs, mins, secs, msecs)
+}
+
+fn format_timestamp_vtt(seconds: f64) -> String {
+    let hrs = (seconds / 3600.0) as u32;
+    let mins = ((seconds % 3600.0) / 60.0) as u32;
+    let secs = (seconds % 60.0) as u32;
+    let msecs = ((seconds - seconds.floor()) * 1000.0).round() as u32;
+    format!("{:02}:{:02}:{:02}.{:03}", hrs, mins, secs, msecs)
+}
+
+fn format_duration_display(seconds: f64) -> String {
+    let hrs = (seconds / 3600.0) as u32;
+    let mins = ((seconds % 3600.0) / 60.0) as u32;
+    let secs = (seconds % 60.0) as u32;
+    if hrs > 0 {
+        format!("{:02}:{:02}:{:02}", hrs, mins, secs)
+    } else {
+        format!("{:02}:{:02}", mins, secs)
+    }
+}
+
+#[tauri::command]
+pub fn save_transcription_file(
+    output_dir: String,
+    filename: String,
+    format: String, // "txt", "srt", "vtt", "json", "all"
+    title: String,
+    language: String,
+    duration: f64,
+    full_text: String,
+    segments: Vec<TranscriptSegment>,
+) -> Result<String, String> {
+    let out_dir = Path::new(&output_dir);
+    if !out_dir.exists() {
+        std::fs::create_dir_all(out_dir).map_err(|e| format!("Gagal membuat folder tujuan: {}", e))?;
+    }
+
+    // Clean filename stem
+    let clean_stem = filename
+        .trim()
+        .replace(['\\', '/', '*', '?', ':', '"', '<', '>', '|'], "_");
+    let base_stem = if let Some(idx) = clean_stem.rfind('.') {
+        &clean_stem[..idx]
+    } else {
+        &clean_stem
+    };
+    let base_name = if base_stem.is_empty() { "transkrip" } else { base_stem };
+
+    let save_txt = |path: &Path| -> Result<(), String> {
+        let content = format!(
+            "# Transkrip: {}\n# Bahasa: {} | Durasi: {}\n\n{}",
+            title,
+            language.to_uppercase(),
+            format_duration_display(duration),
+            full_text
+        );
+        std::fs::write(path, content).map_err(|e| format!("Gagal menyimpan file TXT: {}", e))
+    };
+
+    let save_srt = |path: &Path| -> Result<(), String> {
+        let mut content = String::new();
+        for (idx, seg) in segments.iter().enumerate() {
+            content.push_str(&format!(
+                "{}\n{} --> {}\n{}\n\n",
+                idx + 1,
+                format_timestamp_srt(seg.start),
+                format_timestamp_srt(seg.end),
+                seg.text
+            ));
+        }
+        std::fs::write(path, content).map_err(|e| format!("Gagal menyimpan file SRT: {}", e))
+    };
+
+    let save_vtt = |path: &Path| -> Result<(), String> {
+        let mut content = String::from("WEBVTT\n\n");
+        for seg in &segments {
+            content.push_str(&format!(
+                "{} --> {}\n{}\n\n",
+                format_timestamp_vtt(seg.start),
+                format_timestamp_vtt(seg.end),
+                seg.text
+            ));
+        }
+        std::fs::write(path, content).map_err(|e| format!("Gagal menyimpan file VTT: {}", e))
+    };
+
+    let save_json = |path: &Path| -> Result<(), String> {
+        let payload = serde_json::json!({
+            "title": title,
+            "language": language,
+            "duration": duration,
+            "full_text": full_text,
+            "segments": segments
+        });
+        let json_str = serde_json::to_string_pretty(&payload)
+            .map_err(|e| format!("Gagal memformat JSON: {}", e))?;
+        std::fs::write(path, json_str).map_err(|e| format!("Gagal menyimpan file JSON: {}", e))
+    };
+
+    let saved_main_path = match format.to_lowercase().as_str() {
+        "txt" => {
+            let p = out_dir.join(format!("{}.txt", base_name));
+            save_txt(&p)?;
+            p.to_string_lossy().to_string()
+        }
+        "srt" => {
+            let p = out_dir.join(format!("{}.srt", base_name));
+            save_srt(&p)?;
+            p.to_string_lossy().to_string()
+        }
+        "vtt" => {
+            let p = out_dir.join(format!("{}.vtt", base_name));
+            save_vtt(&p)?;
+            p.to_string_lossy().to_string()
+        }
+        "json" => {
+            let p = out_dir.join(format!("{}.json", base_name));
+            save_json(&p)?;
+            p.to_string_lossy().to_string()
+        }
+        "all" => {
+            let p_txt = out_dir.join(format!("{}.txt", base_name));
+            let p_srt = out_dir.join(format!("{}.srt", base_name));
+            let p_vtt = out_dir.join(format!("{}.vtt", base_name));
+            let p_json = out_dir.join(format!("{}.json", base_name));
+            save_txt(&p_txt)?;
+            save_srt(&p_srt)?;
+            save_vtt(&p_vtt)?;
+            save_json(&p_json)?;
+            p_txt.to_string_lossy().to_string()
+        }
+        _ => return Err("Format ekspor tidak didukung. Pilih txt, srt, vtt, json, atau all.".to_string()),
+    };
+
+    Ok(saved_main_path)
 }
