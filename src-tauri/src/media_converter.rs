@@ -2,7 +2,6 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use regex::Regex;
-use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::utils::{find_executable, TaskProgressPayload};

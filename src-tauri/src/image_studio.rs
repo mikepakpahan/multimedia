@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::ImageFormat;
-use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use crate::utils::TaskProgressPayload;
 
