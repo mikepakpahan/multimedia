@@ -21,6 +21,7 @@ import {
   ZoomOut,
   Maximize2,
   Move,
+  Pipette,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -30,7 +31,112 @@ interface BgRemoverTabProps {
   onStartRemoveBg?: (filePath: string, method: string, bgColor: string) => void;
 }
 
-type BrushMode = 'erase' | 'restore';
+type BrushMode = 'erase' | 'restore' | 'chroma';
+
+// Helper: Convert HEX color to RGB object
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const clean = hex.replace('#', '').trim();
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16);
+    const g = parseInt(clean[1] + clean[1], 16);
+    const b = parseInt(clean[2] + clean[2], 16);
+    return { r, g, b };
+  }
+  if (clean.length === 6) {
+    const r = parseInt(clean.substring(0, 2), 16);
+    const g = parseInt(clean.substring(2, 4), 16);
+    const b = parseInt(clean.substring(4, 6), 16);
+    return { r, g, b };
+  }
+  return null;
+}
+
+// Helper: Convert RGB numbers to HEX string (#RRGGBB)
+function rgbToHex(r: number, g: number, b: number): string {
+  const toHex = (n: number) => {
+    const h = Math.max(0, Math.min(255, Math.round(n))).toString(16);
+    return h.length === 1 ? '0' + h : h;
+  };
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+}
+
+// High-performance Chroma Key Algorithm with Euclidean distance & Edge Feathering
+function executeChromaKeyOnSource(
+  targetHex: string,
+  tolerance: number, // 1 to 80%
+  smoothness: number, // 0 to 30%
+  sourceSnapshot: ImageData,
+  targetCanvas: HTMLCanvasElement
+) {
+  const rgb = hexToRgb(targetHex);
+  if (!rgb) return;
+
+  const w = targetCanvas.width;
+  const h = targetCanvas.height;
+  const tCtx = targetCanvas.getContext('2d', { willReadFrequently: true });
+  if (!tCtx) return;
+
+  const src = sourceSnapshot.data;
+  const dstData = tCtx.createImageData(w, h);
+  const dst = dstData.data;
+
+  const tr = rgb.r;
+  const tg = rgb.g;
+  const tb = rgb.b;
+
+  // Max 3D Euclidean distance in RGB color cube is sqrt(255^2 + 255^2 + 255^2) = 441.673
+  const maxDist = 441.673;
+  const threshDist = (tolerance / 100) * maxDist;
+  const smoothDist = (smoothness / 100) * maxDist;
+
+  const totalPixels = w * h;
+  for (let i = 0; i < totalPixels; i++) {
+    const idx = i * 4;
+    const r = src[idx];
+    const g = src[idx + 1];
+    const b = src[idx + 2];
+    const a = src[idx + 3];
+
+    // If already transparent in source, keep transparent
+    if (a === 0) {
+      dst[idx] = 0;
+      dst[idx + 1] = 0;
+      dst[idx + 2] = 0;
+      dst[idx + 3] = 0;
+      continue;
+    }
+
+    // Euclidean distance in RGB space
+    const dr = r - tr;
+    const dg = g - tg;
+    const db = b - tb;
+    const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+
+    if (dist <= threshDist - smoothDist) {
+      // Within chroma threshold: eliminate completely
+      dst[idx] = r;
+      dst[idx + 1] = g;
+      dst[idx + 2] = b;
+      dst[idx + 3] = 0;
+    } else if (dist >= threshDist) {
+      // Outside chroma threshold: retain original alpha
+      dst[idx] = r;
+      dst[idx + 1] = g;
+      dst[idx + 2] = b;
+      dst[idx + 3] = a;
+    } else {
+      // Smooth feathering transition to eliminate white haloes/fringing
+      const factor = (dist - (threshDist - smoothDist)) / (smoothDist || 1);
+      const newAlpha = Math.round(a * Math.max(0, Math.min(1, factor)));
+      dst[idx] = r;
+      dst[idx + 1] = g;
+      dst[idx + 2] = b;
+      dst[idx + 3] = newAlpha;
+    }
+  }
+
+  tCtx.putImageData(dstData, 0, 0);
+}
 
 export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
   // Step 1: Input selection & original preview
@@ -54,6 +160,13 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
   const [canRedo, setCanRedo] = useState<boolean>(false);
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 800, height: 600 });
 
+  // Chroma Key Settings
+  const [chromaColor, setChromaColor] = useState<string>('#FFFFFF');
+  const [chromaTolerance, setChromaTolerance] = useState<number>(25);
+  const [chromaSmoothness, setChromaSmoothness] = useState<number>(8);
+  const [isPickingColor, setIsPickingColor] = useState<boolean>(false);
+  const [hoverPixelColor, setHoverPixelColor] = useState<string | null>(null);
+
   // Brush Cursor indicator state
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [displayScale, setDisplayScale] = useState<number>(1);
@@ -69,6 +182,8 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const displayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const workingCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const chromaBaseSnapshotRef = useRef<ImageData | null>(null);
   const originalImgRef = useRef<HTMLImageElement | null>(null);
   const cutoutImgRef = useRef<HTMLImageElement | null>(null);
 
@@ -88,6 +203,13 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
     { id: '#000000', label: 'Hitam Studio', color: '#000000', desc: 'Potret elegan & kontras artistik' },
   ];
 
+  const chromaPresets = [
+    { id: '#FFFFFF', label: 'Putih', color: '#FFFFFF' },
+    { id: '#000000', label: 'Hitam', color: '#000000' },
+    { id: '#00FF00', label: 'Hijau (Chroma)', color: '#00FF00' },
+    { id: '#0000FF', label: 'Biru (Chroma)', color: '#0000FF' },
+  ];
+
   // Pick file via Tauri dialog
   const handleSelectImage = async () => {
     try {
@@ -103,6 +225,9 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
         setErrorMessage(null);
         setZoomLevel(1);
         setPan({ x: 0, y: 0 });
+        originalCanvasRef.current = null;
+        chromaBaseSnapshotRef.current = null;
+        cutoutImgRef.current = null;
 
         // Auto default filename
         const stem = selected.split('\\').pop()?.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'foto';
@@ -120,6 +245,19 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  // Sample pixel color from original pristine image
+  const samplePixelAt = (x: number, y: number): string | null => {
+    const origCanvas = originalCanvasRef.current;
+    if (!origCanvas) return null;
+    const ctx = origCanvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+
+    const clampedX = Math.max(0, Math.min(origCanvas.width - 1, Math.floor(x)));
+    const clampedY = Math.max(0, Math.min(origCanvas.height - 1, Math.floor(y)));
+    const pixel = ctx.getImageData(clampedX, clampedY, 1, 1).data;
+    return rgbToHex(pixel[0], pixel[1], pixel[2]);
   };
 
   // Render display canvas
@@ -228,216 +366,6 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
     };
   }, [hasCutout, canUndo, canRedo]);
 
-  // Run AI / Color background removal preview
-  const handleExecuteAI = async () => {
-    if (!selectedFile) return;
-    setIsProcessingAI(true);
-    setProcessingMsg('Memotong latar belakang dengan AI...');
-    setErrorMessage(null);
-
-    try {
-      // 1. Get AI transparent cutout as base64 from Rust
-      const cutoutBase64 = await invoke<string>('remove_background_preview', {
-        inputPath: selectedFile,
-        method,
-      });
-
-      // 2. Load both images into memory
-      const origImg = new Image();
-      const cutoutImg = new Image();
-
-      let loadedCount = 0;
-      const onBothLoaded = () => {
-        loadedCount++;
-        if (loadedCount === 2) {
-          const w = origImg.naturalWidth;
-          const h = origImg.naturalHeight;
-
-          originalImgRef.current = origImg;
-          cutoutImgRef.current = cutoutImg;
-          setCanvasSize({ width: w, height: h });
-          setZoomLevel(1);
-          setPan({ x: 0, y: 0 });
-
-          // Initialize offscreen working canvas
-          if (!workingCanvasRef.current) {
-            workingCanvasRef.current = document.createElement('canvas');
-          }
-          const working = workingCanvasRef.current;
-          working.width = w;
-          working.height = h;
-
-          const wCtx = working.getContext('2d', { willReadFrequently: true });
-          if (wCtx) {
-            wCtx.clearRect(0, 0, w, h);
-            wCtx.drawImage(cutoutImg, 0, 0, w, h);
-
-            // Initial snapshot in history
-            const initialSnapshot = wCtx.getImageData(0, 0, w, h);
-            historyRef.current = [initialSnapshot];
-            historyIndexRef.current = 0;
-            setCanUndo(false);
-            setCanRedo(false);
-          }
-
-          setHasCutout(true);
-          setIsProcessingAI(false);
-        }
-      };
-
-      origImg.onload = onBothLoaded;
-      origImg.onerror = () => {
-        setIsProcessingAI(false);
-        setErrorMessage('Gagal memuat data foto asli ke canvas.');
-      };
-
-      cutoutImg.onload = onBothLoaded;
-      cutoutImg.onerror = () => {
-        setIsProcessingAI(false);
-        setErrorMessage('Gagal memuat data hasil potongan AI ke canvas.');
-      };
-
-      origImg.src = originalBase64 || cutoutBase64;
-      cutoutImg.src = cutoutBase64;
-    } catch (err) {
-      console.error('AI Removal error:', err);
-      setIsProcessingAI(false);
-      setErrorMessage('Gagal memproses pemotongan AI: ' + String(err));
-    }
-  };
-
-  // Translate mouse coordinate to natural canvas coordinate
-  const getCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = displayCanvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
-    };
-  };
-
-  // Execute brush stroke directly on workingCanvas
-  const drawStroke = (x1: number, y1: number, x2: number, y2: number) => {
-    const working = workingCanvasRef.current;
-    const orig = originalImgRef.current;
-    if (!working || !orig) return;
-
-    const wCtx = working.getContext('2d', { willReadFrequently: true });
-    if (!wCtx) return;
-
-    wCtx.save();
-    wCtx.lineWidth = brushSize;
-    wCtx.lineCap = 'round';
-    wCtx.lineJoin = 'round';
-
-    if (brushMode === 'erase') {
-      // Erase: removes pixels directly to transparency
-      wCtx.globalCompositeOperation = 'destination-out';
-      wCtx.strokeStyle = 'rgba(0,0,0,1)';
-      wCtx.beginPath();
-      wCtx.moveTo(x1, y1);
-      wCtx.lineTo(x2, y2);
-      wCtx.stroke();
-    } else {
-      // Restore: paints pixels from original photo with 100% perfect registration
-      wCtx.globalCompositeOperation = 'source-over';
-      const pattern = wCtx.createPattern(orig, 'no-repeat');
-      if (pattern) {
-        wCtx.strokeStyle = pattern;
-        wCtx.beginPath();
-        wCtx.moveTo(x1, y1);
-        wCtx.lineTo(x2, y2);
-        wCtx.stroke();
-      }
-    }
-
-    wCtx.restore();
-    renderDisplay();
-  };
-
-  // Panning & Drawing Handlers
-  const handleWorkspaceMouseDown = (e: React.MouseEvent) => {
-    // If Space is held, or Middle Click (button 1), or Right Click (button 2): PAN
-    if (isSpacePressed || e.button === 1 || e.button === 2) {
-      e.preventDefault();
-      isPanningRef.current = true;
-      startPanRef.current = {
-        x: e.clientX - pan.x,
-        y: e.clientY - pan.y,
-      };
-      return;
-    }
-  };
-
-  const handleWorkspaceMouseMove = (e: React.MouseEvent) => {
-    if (isPanningRef.current) {
-      setPan({
-        x: e.clientX - startPanRef.current.x,
-        y: e.clientY - startPanRef.current.y,
-      });
-      return;
-    }
-  };
-
-  const handleWorkspaceMouseUp = () => {
-    if (isPanningRef.current) {
-      isPanningRef.current = false;
-    }
-  };
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (isComparing || !hasCutout) return;
-    // Don't draw if panning
-    if (isSpacePressed || e.button === 1 || e.button === 2) {
-      return;
-    }
-    isDrawingRef.current = true;
-    const coords = getCanvasCoords(e);
-    lastPointRef.current = coords;
-    drawStroke(coords.x, coords.y, coords.x, coords.y);
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = displayCanvasRef.current;
-    if (!canvas) return;
-
-    // Update visual circle cursor
-    const rect = canvas.getBoundingClientRect();
-    setCursorPos({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    });
-    if (rect.width > 0 && canvas.width > 0) {
-      setDisplayScale(rect.width / canvas.width);
-    }
-
-    if (!isDrawingRef.current || !lastPointRef.current || isPanningRef.current) return;
-    const coords = getCanvasCoords(e);
-    drawStroke(lastPointRef.current.x, lastPointRef.current.y, coords.x, coords.y);
-    lastPointRef.current = coords;
-  };
-
-  const handleMouseUp = () => {
-    if (isDrawingRef.current) {
-      isDrawingRef.current = false;
-      lastPointRef.current = null;
-      pushHistorySnapshot();
-    }
-  };
-
-  const handleMouseLeave = () => {
-    if (isDrawingRef.current) {
-      isDrawingRef.current = false;
-      lastPointRef.current = null;
-      pushHistorySnapshot();
-    }
-    setIsHoveringCanvas(false);
-    setCursorPos(null);
-  };
-
   // Push snapshot to history stack
   const pushHistorySnapshot = () => {
     const working = workingCanvasRef.current;
@@ -483,22 +411,427 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
     const snapshot = historyRef.current[index];
     if (snapshot) {
       wCtx.putImageData(snapshot, 0, 0);
+      chromaBaseSnapshotRef.current = snapshot;
       renderDisplay();
     }
     setCanUndo(index > 0);
     setCanRedo(index < historyRef.current.length - 1);
   };
 
-  // Reset to initial AI cutout
+  // Run AI / Chroma Key background removal
+  const handleExecuteAI = async () => {
+    if (!selectedFile) return;
+    setIsProcessingAI(true);
+    setProcessingMsg(method === 'ai' ? 'Memotong latar belakang dengan AI...' : 'Menyiapkan Studio Chroma Key...');
+    setErrorMessage(null);
+
+    try {
+      if (method === 'color') {
+        // High-Speed Client-Side Chroma Key: instantaneous 0ms
+        const b64 = originalBase64 || (await invoke<string>('load_image_base64', { path: selectedFile }));
+        const origImg = new Image();
+        origImg.onload = () => {
+          const w = origImg.naturalWidth;
+          const h = origImg.naturalHeight;
+          originalImgRef.current = origImg;
+          cutoutImgRef.current = null;
+          setCanvasSize({ width: w, height: h });
+          setZoomLevel(1);
+          setPan({ x: 0, y: 0 });
+
+          // Setup original pristine canvas
+          const origCanvas = document.createElement('canvas');
+          origCanvas.width = w;
+          origCanvas.height = h;
+          const oCtx = origCanvas.getContext('2d', { willReadFrequently: true });
+          if (oCtx) {
+            oCtx.drawImage(origImg, 0, 0, w, h);
+            originalCanvasRef.current = origCanvas;
+
+            // Auto-detect corner pixel color (top-left sample at 4, 4)
+            const cornerPixel = oCtx.getImageData(Math.min(4, w - 1), Math.min(4, h - 1), 1, 1).data;
+            const detectedHex = rgbToHex(cornerPixel[0], cornerPixel[1], cornerPixel[2]);
+            setChromaColor(detectedHex);
+
+            // Setup working canvas
+            if (!workingCanvasRef.current) {
+              workingCanvasRef.current = document.createElement('canvas');
+            }
+            const working = workingCanvasRef.current;
+            working.width = w;
+            working.height = h;
+
+            // Capture raw base snapshot from original
+            const baseSnap = oCtx.getImageData(0, 0, w, h);
+            chromaBaseSnapshotRef.current = baseSnap;
+
+            // Execute Chroma Key instantly on the detected background color
+            executeChromaKeyOnSource(detectedHex, chromaTolerance, chromaSmoothness, baseSnap, working);
+
+            const wCtx = working.getContext('2d', { willReadFrequently: true });
+            if (wCtx) {
+              const snapshot = wCtx.getImageData(0, 0, w, h);
+              historyRef.current = [snapshot];
+              historyIndexRef.current = 0;
+              setCanUndo(false);
+              setCanRedo(false);
+            }
+          }
+
+          setBrushMode('chroma');
+          setHasCutout(true);
+          setIsProcessingAI(false);
+        };
+        origImg.onerror = () => {
+          setIsProcessingAI(false);
+          setErrorMessage('Gagal membaca gambar asli untuk Chroma Key.');
+        };
+        origImg.src = b64;
+        return;
+      }
+
+      // Method === 'ai'
+      const cutoutBase64 = await invoke<string>('remove_background_preview', {
+        inputPath: selectedFile,
+        method,
+      });
+
+      const origImg = new Image();
+      const cutoutImg = new Image();
+      let loadedCount = 0;
+      const onBothLoaded = () => {
+        loadedCount++;
+        if (loadedCount === 2) {
+          const w = origImg.naturalWidth;
+          const h = origImg.naturalHeight;
+          originalImgRef.current = origImg;
+          cutoutImgRef.current = cutoutImg;
+          setCanvasSize({ width: w, height: h });
+          setZoomLevel(1);
+          setPan({ x: 0, y: 0 });
+
+          // Setup original canvas
+          const origCanvas = document.createElement('canvas');
+          origCanvas.width = w;
+          origCanvas.height = h;
+          const oCtx = origCanvas.getContext('2d', { willReadFrequently: true });
+          if (oCtx) {
+            oCtx.drawImage(origImg, 0, 0, w, h);
+            originalCanvasRef.current = origCanvas;
+          }
+
+          // Setup working canvas
+          if (!workingCanvasRef.current) {
+            workingCanvasRef.current = document.createElement('canvas');
+          }
+          const working = workingCanvasRef.current;
+          working.width = w;
+          working.height = h;
+
+          const wCtx = working.getContext('2d', { willReadFrequently: true });
+          if (wCtx) {
+            wCtx.clearRect(0, 0, w, h);
+            wCtx.drawImage(cutoutImg, 0, 0, w, h);
+            const initialSnapshot = wCtx.getImageData(0, 0, w, h);
+            historyRef.current = [initialSnapshot];
+            historyIndexRef.current = 0;
+            setCanUndo(false);
+            setCanRedo(false);
+            chromaBaseSnapshotRef.current = initialSnapshot;
+          }
+
+          setBrushMode('erase');
+          setHasCutout(true);
+          setIsProcessingAI(false);
+        }
+      };
+
+      origImg.onload = onBothLoaded;
+      origImg.onerror = () => {
+        setIsProcessingAI(false);
+        setErrorMessage('Gagal memuat foto asli ke canvas.');
+      };
+      cutoutImg.onload = onBothLoaded;
+      cutoutImg.onerror = () => {
+        setIsProcessingAI(false);
+        setErrorMessage('Gagal memuat hasil AI ke canvas.');
+      };
+
+      origImg.src = originalBase64 || cutoutBase64;
+      cutoutImg.src = cutoutBase64;
+    } catch (err) {
+      console.error('AI Removal error:', err);
+      setIsProcessingAI(false);
+      setErrorMessage('Gagal memproses pemotongan AI: ' + String(err));
+    }
+  };
+
+  // Switch to Chroma Key mode and anchor base snapshot
+  const handleSelectChromaMode = () => {
+    setBrushMode('chroma');
+    const working = workingCanvasRef.current;
+    if (working) {
+      const wCtx = working.getContext('2d', { willReadFrequently: true });
+      if (wCtx) {
+        chromaBaseSnapshotRef.current = wCtx.getImageData(0, 0, working.width, working.height);
+      }
+    }
+  };
+
+  // Live adjustments for Chroma Key
+  const handleToleranceChange = (newTolerance: number) => {
+    setChromaTolerance(newTolerance);
+    if (!chromaBaseSnapshotRef.current) {
+      const base = originalCanvasRef.current || workingCanvasRef.current;
+      if (base) {
+        const bCtx = base.getContext('2d', { willReadFrequently: true });
+        if (bCtx) chromaBaseSnapshotRef.current = bCtx.getImageData(0, 0, base.width, base.height);
+      }
+    }
+    if (chromaBaseSnapshotRef.current && workingCanvasRef.current) {
+      executeChromaKeyOnSource(
+        chromaColor,
+        newTolerance,
+        chromaSmoothness,
+        chromaBaseSnapshotRef.current,
+        workingCanvasRef.current
+      );
+      renderDisplay();
+    }
+  };
+
+  const handleSmoothnessChange = (newSmoothness: number) => {
+    setChromaSmoothness(newSmoothness);
+    if (!chromaBaseSnapshotRef.current) {
+      const base = originalCanvasRef.current || workingCanvasRef.current;
+      if (base) {
+        const bCtx = base.getContext('2d', { willReadFrequently: true });
+        if (bCtx) chromaBaseSnapshotRef.current = bCtx.getImageData(0, 0, base.width, base.height);
+      }
+    }
+    if (chromaBaseSnapshotRef.current && workingCanvasRef.current) {
+      executeChromaKeyOnSource(
+        chromaColor,
+        chromaTolerance,
+        newSmoothness,
+        chromaBaseSnapshotRef.current,
+        workingCanvasRef.current
+      );
+      renderDisplay();
+    }
+  };
+
+  const handleColorChange = (newColor: string) => {
+    setChromaColor(newColor);
+    if (!chromaBaseSnapshotRef.current) {
+      const base = originalCanvasRef.current || workingCanvasRef.current;
+      if (base) {
+        const bCtx = base.getContext('2d', { willReadFrequently: true });
+        if (bCtx) chromaBaseSnapshotRef.current = bCtx.getImageData(0, 0, base.width, base.height);
+      }
+    }
+    if (chromaBaseSnapshotRef.current && workingCanvasRef.current) {
+      executeChromaKeyOnSource(
+        newColor,
+        chromaTolerance,
+        chromaSmoothness,
+        chromaBaseSnapshotRef.current,
+        workingCanvasRef.current
+      );
+      renderDisplay();
+      pushHistorySnapshot();
+    }
+  };
+
+  const handleSliderCommit = () => {
+    pushHistorySnapshot();
+  };
+
+  // Eyedropper Color Picker (System API or Canvas click fallback)
+  const handlePickColor = async () => {
+    if ('EyeDropper' in window) {
+      try {
+        setIsPickingColor(true);
+        const eyeDropper = new (window as any).EyeDropper();
+        const result = await eyeDropper.open();
+        if (result && result.sRGBHex) {
+          const hex = result.sRGBHex.toUpperCase();
+          handleColorChange(hex);
+        }
+      } catch {
+        // Cancelled or not allowed: fall back to canvas click
+        setIsPickingColor(true);
+      } finally {
+        setIsPickingColor(false);
+      }
+    } else {
+      setIsPickingColor(true);
+    }
+  };
+
+  // Canvas coordinate translation
+  const getCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = displayCanvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
+  };
+
+  // Execute manual brush stroke
+  const drawStroke = (x1: number, y1: number, x2: number, y2: number) => {
+    const working = workingCanvasRef.current;
+    const orig = originalImgRef.current;
+    if (!working || !orig) return;
+
+    const wCtx = working.getContext('2d', { willReadFrequently: true });
+    if (!wCtx) return;
+
+    wCtx.save();
+    wCtx.lineWidth = brushSize;
+    wCtx.lineCap = 'round';
+    wCtx.lineJoin = 'round';
+
+    if (brushMode === 'erase') {
+      wCtx.globalCompositeOperation = 'destination-out';
+      wCtx.strokeStyle = 'rgba(0,0,0,1)';
+      wCtx.beginPath();
+      wCtx.moveTo(x1, y1);
+      wCtx.lineTo(x2, y2);
+      wCtx.stroke();
+    } else if (brushMode === 'restore') {
+      wCtx.globalCompositeOperation = 'source-over';
+      const pattern = wCtx.createPattern(orig, 'no-repeat');
+      if (pattern) {
+        wCtx.strokeStyle = pattern;
+        wCtx.beginPath();
+        wCtx.moveTo(x1, y1);
+        wCtx.lineTo(x2, y2);
+        wCtx.stroke();
+      }
+    }
+
+    wCtx.restore();
+    renderDisplay();
+  };
+
+  // Canvas Mouse Handlers
+  const handleWorkspaceMouseDown = (e: React.MouseEvent) => {
+    if (isSpacePressed || e.button === 1 || e.button === 2) {
+      e.preventDefault();
+      isPanningRef.current = true;
+      startPanRef.current = {
+        x: e.clientX - pan.x,
+        y: e.clientY - pan.y,
+      };
+      return;
+    }
+  };
+
+  const handleWorkspaceMouseMove = (e: React.MouseEvent) => {
+    if (isPanningRef.current) {
+      setPan({
+        x: e.clientX - startPanRef.current.x,
+        y: e.clientY - startPanRef.current.y,
+      });
+      return;
+    }
+  };
+
+  const handleWorkspaceMouseUp = () => {
+    if (isPanningRef.current) {
+      isPanningRef.current = false;
+    }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isComparing || !hasCutout) return;
+    if (isSpacePressed || e.button === 1 || e.button === 2) {
+      return;
+    }
+
+    // In Chroma Key mode or when eyedropper is active: pick color and remove immediately!
+    if (brushMode === 'chroma' || isPickingColor) {
+      const coords = getCanvasCoords(e);
+      const hex = samplePixelAt(coords.x, coords.y);
+      if (hex) {
+        handleColorChange(hex);
+        setIsPickingColor(false);
+      }
+      return;
+    }
+
+    isDrawingRef.current = true;
+    const coords = getCanvasCoords(e);
+    lastPointRef.current = coords;
+    drawStroke(coords.x, coords.y, coords.x, coords.y);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = displayCanvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    setCursorPos({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+    if (rect.width > 0 && canvas.width > 0) {
+      setDisplayScale(rect.width / canvas.width);
+    }
+
+    // In Chroma mode: track hovered pixel color for live loupe preview
+    if (brushMode === 'chroma' || isPickingColor) {
+      const coords = getCanvasCoords(e);
+      const hex = samplePixelAt(coords.x, coords.y);
+      setHoverPixelColor(hex);
+      return;
+    }
+
+    if (!isDrawingRef.current || !lastPointRef.current || isPanningRef.current) return;
+    const coords = getCanvasCoords(e);
+    drawStroke(lastPointRef.current.x, lastPointRef.current.y, coords.x, coords.y);
+    lastPointRef.current = coords;
+  };
+
+  const handleMouseUp = () => {
+    if (isDrawingRef.current) {
+      isDrawingRef.current = false;
+      lastPointRef.current = null;
+      pushHistorySnapshot();
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (isDrawingRef.current) {
+      isDrawingRef.current = false;
+      lastPointRef.current = null;
+      pushHistorySnapshot();
+    }
+    setIsHoveringCanvas(false);
+    setCursorPos(null);
+    setHoverPixelColor(null);
+  };
+
+  // Reset to initial cutout state
   const handleResetToAI = () => {
     const working = workingCanvasRef.current;
-    const cutout = cutoutImgRef.current;
-    if (!working || !cutout) return;
+    if (!working) return;
     const wCtx = working.getContext('2d', { willReadFrequently: true });
     if (!wCtx) return;
 
     wCtx.clearRect(0, 0, working.width, working.height);
-    wCtx.drawImage(cutout, 0, 0, working.width, working.height);
+    if (cutoutImgRef.current) {
+      wCtx.drawImage(cutoutImgRef.current, 0, 0, working.width, working.height);
+    } else if (originalCanvasRef.current) {
+      wCtx.drawImage(originalCanvasRef.current, 0, 0, working.width, working.height);
+    }
+
+    chromaBaseSnapshotRef.current = wCtx.getImageData(0, 0, working.width, working.height);
 
     const snapshot = wCtx.getImageData(0, 0, working.width, working.height);
     historyRef.current.push(snapshot);
@@ -620,13 +953,13 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
             </div>
             <div>
               <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 text-xs font-semibold border border-rose-200/60 dark:border-rose-800/40 mb-1">
-                <Sparkles className="w-3.5 h-3.5" /> AI Cutout & Studio Editor
+                <Sparkles className="w-3.5 h-3.5" /> AI Cutout & Chroma Key Studio
               </div>
               <h1 className="text-xl md:text-2xl font-semibold text-slate-800 dark:text-slate-100 tracking-tight">
                 Hapus Background Foto & Pas Foto
               </h1>
               <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                Potong otomatis dengan AI, perbaiki detail dengan kuas zoom interaktif, lalu simpan ke komputer.
+                Potong otomatis dengan AI, Chroma Key pipet warna logo seketika, dan kuas perbaikan detail.
               </p>
             </div>
           </div>
@@ -696,7 +1029,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                   Pilih atau Seret Foto ke Sini
                 </p>
                 <p className="text-xs text-slate-400 dark:text-neutral-500">
-                  Portrait wajah, foto produk, logo, atau stempel (JPG, PNG, WebP)
+                  Portrait manusia, logo berlatar putih/polos, stempel, atau pas foto (JPG, PNG, WebP)
                 </p>
               </div>
             ) : (
@@ -738,7 +1071,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
             )}
           </div>
 
-          {/* AI Mode Options & Trigger */}
+          {/* Mode Selection & Trigger */}
           {selectedFile && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
@@ -765,7 +1098,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                   <div>
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                        AI Deep Learning (Rekomendasi)
+                        AI Deep Learning (Rekomendasi Manusia)
                       </span>
                       <span className="text-[9px] bg-rose-500 text-white px-1.5 py-0.2 rounded-md font-semibold">
                         Presisi
@@ -781,39 +1114,55 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                   onClick={() => setMethod('color')}
                   className={`p-4 rounded-2xl border cursor-pointer transition flex items-start gap-3.5 ${
                     method === 'color'
-                      ? 'bg-rose-50/70 dark:bg-rose-950/40 border-rose-500 dark:border-rose-500 shadow-xs'
-                      : 'bg-white/80 dark:bg-neutral-800/70 border-black/[0.06] dark:border-white/[0.08] hover:border-rose-300'
+                      ? 'bg-amber-50/70 dark:bg-amber-950/40 border-amber-500 dark:border-amber-500 shadow-xs'
+                      : 'bg-white/80 dark:bg-neutral-800/70 border-black/[0.06] dark:border-white/[0.08] hover:border-amber-300'
                   }`}
                 >
                   <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0">
-                    <Zap className="w-5 h-5" />
+                    <Pipette className="w-5 h-5" />
                   </div>
                   <div>
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                      Pembersih Warna Cepat (Logo / Polos)
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                        Chroma Key / Pembersih Warna Logo
+                      </span>
+                      <span className="text-[9px] bg-amber-500 text-white px-1.5 py-0.2 rounded-md font-semibold">
+                        Instan 0ms
+                      </span>
+                    </div>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                      Instan (0ms). Cocok untuk menghapus background putih/hijau pada logo, stempel, atau pas foto polos.
+                      Hapus seketika background putih/polos pada logo, stempel, atau green screen dengan pipet warna presisi.
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* Start AI Button */}
+              {/* Start Button */}
               <div className="bg-white/80 dark:bg-[#1E1E1E]/80 backdrop-blur-xl border border-black/[0.06] dark:border-white/[0.08] p-5 rounded-3xl flex items-center justify-between gap-4 shadow-sm">
                 <span className="text-xs text-slate-500 dark:text-neutral-400">
-                  Hasil pemotongan akan dibuka di editor interaktif untuk dipratinjau & disempurnakan.
+                  {method === 'color'
+                    ? 'Studio Chroma Key siap dibuka secara instan tanpa perlu menunggu render AI.'
+                    : 'Hasil pemotongan AI akan dibuka di editor interaktif untuk disempurnakan.'}
                 </span>
 
                 <button
                   onClick={handleExecuteAI}
                   disabled={isProcessingAI}
-                  className="px-7 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-xs rounded-xl shadow-xs hover:shadow transition flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                  className={`px-7 py-2.5 text-white font-medium text-xs rounded-xl shadow-xs hover:shadow transition flex items-center justify-center gap-2 cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
+                    method === 'color'
+                      ? 'bg-amber-500 hover:bg-amber-600'
+                      : 'bg-rose-500 hover:bg-rose-600'
+                  }`}
                 >
                   {isProcessingAI ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>{processingMsg || 'Sedang Memotong AI...'}</span>
+                      <span>{processingMsg || 'Sedang Memproses...'}</span>
+                    </>
+                  ) : method === 'color' ? (
+                    <>
+                      <Pipette className="w-3.5 h-3.5" />
+                      <span>🪄 Buka Studio Chroma Key Logo (Instan)</span>
                     </>
                   ) : (
                     <>
@@ -828,14 +1177,27 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
         </div>
       )}
 
-      {/* STEP 2: Interactive Studio (Preview, Manual Erase/Restore, Color Changer, & Save) */}
+      {/* STEP 2: Interactive Studio (Preview, Chroma Key, Manual Erase/Restore, & Save) */}
       {hasCutout && (
         <div className="space-y-4 animate-fadeIn">
           {/* Studio Top Control Toolbar */}
           <div className="bg-white/85 dark:bg-[#1E1E1E]/85 backdrop-blur-2xl border border-black/[0.06] dark:border-white/[0.08] p-4 rounded-3xl shadow-sm space-y-3.5">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              {/* Brush Tools: Erase vs Restore */}
+              {/* Tool Mode Selector: Chroma Key vs Erase vs Restore */}
               <div className="flex items-center gap-1.5 p-1 bg-black/[0.04] dark:bg-white/[0.06] rounded-2xl border border-black/[0.04] dark:border-white/[0.06]">
+                <button
+                  onClick={handleSelectChromaMode}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                    brushMode === 'chroma'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-neutral-300 hover:text-amber-500'
+                  }`}
+                  title="Hapus background warna/logo seketika dengan pipet"
+                >
+                  <Pipette className="w-3.5 h-3.5" />
+                  <span>Chroma Key (Logo)</span>
+                </button>
+
                 <button
                   onClick={() => setBrushMode('erase')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
@@ -843,7 +1205,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                       ? 'bg-rose-500 text-white shadow-xs'
                       : 'text-slate-600 dark:text-neutral-300 hover:text-rose-500'
                   }`}
-                  title="Hapus sisa background yang belum bersih"
+                  title="Hapus manual sisa background dengan kuas"
                 >
                   <Eraser className="w-3.5 h-3.5" />
                   <span>Hapus (Erase)</span>
@@ -856,47 +1218,11 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                       ? 'bg-emerald-500 text-white shadow-xs'
                       : 'text-slate-600 dark:text-neutral-300 hover:text-emerald-500'
                   }`}
-                  title="Kembalikan bagian foto asli yang terpotong (rambut/baju)"
+                  title="Kembalikan bagian foto asli yang terpotong"
                 >
                   <Paintbrush className="w-3.5 h-3.5" />
                   <span>Pulihkan (Restore)</span>
                 </button>
-              </div>
-
-              {/* Brush Size / Diameter Slider */}
-              <div className="flex items-center gap-3 bg-black/[0.02] dark:bg-white/[0.04] px-3.5 py-1.5 rounded-2xl border border-black/[0.04] dark:border-white/[0.06]">
-                <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-neutral-300">
-                  <Sliders className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="font-semibold">Ukuran Kuas:</span>
-                  <span className="font-mono text-rose-500 dark:text-rose-400 font-bold w-12 text-right">
-                    {brushSize}px
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="5"
-                  max="200"
-                  step="1"
-                  value={brushSize}
-                  onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
-                  className="w-24 md:w-36 accent-rose-500 cursor-pointer"
-                  title="Shift + Scroll pada foto untuk mengubah cepat"
-                />
-                <div className="flex items-center gap-1">
-                  {[15, 45, 90, 150].map((sz) => (
-                    <button
-                      key={sz}
-                      onClick={() => setBrushSize(sz)}
-                      className={`px-1.5 py-0.5 text-[10px] rounded-md border font-mono transition cursor-pointer ${
-                        brushSize === sz
-                          ? 'border-rose-500 text-rose-500 bg-rose-50 dark:bg-rose-950/40'
-                          : 'border-black/[0.08] dark:border-white/[0.1] text-slate-500 hover:border-slate-400'
-                      }`}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               {/* Undo / Redo & Compare Actions */}
@@ -904,7 +1230,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                 <button
                   onClick={handleUndo}
                   disabled={!canUndo}
-                  title="Undo coretan (Ctrl + Z)"
+                  title="Undo coretan / warna (Ctrl + Z)"
                   className="p-2 rounded-xl border border-black/[0.06] dark:border-white/[0.08] text-slate-600 dark:text-neutral-300 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition cursor-pointer"
                 >
                   <Undo2 className="w-4 h-4" />
@@ -912,14 +1238,14 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                 <button
                   onClick={handleRedo}
                   disabled={!canRedo}
-                  title="Redo coretan (Ctrl + Y)"
+                  title="Redo coretan / warna (Ctrl + Y)"
                   className="p-2 rounded-xl border border-black/[0.06] dark:border-white/[0.08] text-slate-600 dark:text-neutral-300 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition cursor-pointer"
                 >
                   <Redo2 className="w-4 h-4" />
                 </button>
                 <button
                   onClick={handleResetToAI}
-                  title="Kembalikan ke potongan AI awal"
+                  title="Kembalikan ke gambar potongan awal"
                   className="p-2 rounded-xl border border-black/[0.06] dark:border-white/[0.08] text-slate-600 dark:text-neutral-300 hover:text-rose-500 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition cursor-pointer"
                 >
                   <RotateCcw className="w-4 h-4" />
@@ -942,6 +1268,196 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                 </button>
               </div>
             </div>
+
+            {/* Sub-bar: Specific Controls depending on active mode */}
+            {brushMode === 'chroma' ? (
+              <div className="flex flex-wrap items-center gap-3 bg-amber-500/[0.05] dark:bg-amber-500/[0.08] p-2.5 rounded-2xl border border-amber-500/20 w-full animate-fadeIn">
+                {/* Target Color & Pipette Picker */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-700 dark:text-neutral-200">
+                    Warna Target:
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <div
+                      className="w-6 h-6 rounded-lg border border-black/20 dark:border-white/20 shadow-xs shrink-0"
+                      style={{ backgroundColor: chromaColor }}
+                      title={`Warna target aktif: ${chromaColor}`}
+                    />
+                    <span className="text-[11px] font-mono font-bold text-slate-700 dark:text-neutral-200 uppercase min-w-[58px]">
+                      {chromaColor}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={handlePickColor}
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border ${
+                      isPickingColor
+                        ? 'bg-amber-500 text-white border-amber-500 ring-2 ring-amber-400 ring-offset-1 animate-pulse'
+                        : 'bg-white dark:bg-neutral-800 border-black/[0.08] dark:border-white/[0.1] text-amber-600 dark:text-amber-400 hover:border-amber-400'
+                    }`}
+                    title="Klik untuk mengambil warna langsung dari foto"
+                  >
+                    <Pipette className="w-3.5 h-3.5" />
+                    <span>{isPickingColor ? 'Klik pada Foto...' : 'Ambil Pipet'}</span>
+                  </button>
+
+                  {/* Preset Swatches */}
+                  <div className="flex items-center gap-1 ml-1">
+                    {chromaPresets.map((preset) => (
+                      <button
+                        key={preset.id}
+                        onClick={() => handleColorChange(preset.id)}
+                        className={`w-6 h-6 rounded-lg border transition cursor-pointer shrink-0 ${
+                          chromaColor.toUpperCase() === preset.id.toUpperCase()
+                            ? 'ring-2 ring-amber-500 ring-offset-1 border-black/30 scale-105'
+                            : 'border-black/15 hover:scale-105'
+                        }`}
+                        style={{ backgroundColor: preset.color }}
+                        title={`Pilih ${preset.label} (${preset.color})`}
+                      />
+                    ))}
+
+                    {/* Custom Color Input */}
+                    <label
+                      className="w-6 h-6 rounded-lg border border-black/15 overflow-hidden flex items-center justify-center cursor-pointer hover:scale-105 transition shrink-0 bg-gradient-to-br from-red-500 via-green-500 to-blue-500"
+                      title="Pilih warna kustom dengan palet"
+                    >
+                      <input
+                        type="color"
+                        value={chromaColor}
+                        onChange={(e) => handleColorChange(e.target.value.toUpperCase())}
+                        className="opacity-0 w-full h-full cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Vertical separator */}
+                <div className="h-6 w-px bg-black/[0.08] dark:bg-white/[0.1] hidden md:block" />
+
+                {/* Tolerance Slider */}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 text-xs text-slate-600 dark:text-neutral-300">
+                    <Sliders className="w-3.5 h-3.5 text-amber-500" />
+                    <span className="font-semibold">Toleransi:</span>
+                    <span className="font-mono text-amber-600 dark:text-amber-400 font-bold w-9 text-right">
+                      {chromaTolerance}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="80"
+                    step="1"
+                    value={chromaTolerance}
+                    onChange={(e) => handleToleranceChange(parseInt(e.target.value, 10))}
+                    onMouseUp={handleSliderCommit}
+                    onTouchEnd={handleSliderCommit}
+                    className="w-20 sm:w-28 accent-amber-500 cursor-pointer"
+                    title="Sensitivitas jangkauan warna yang dihapus"
+                  />
+                  <div className="hidden sm:flex items-center gap-1">
+                    {[15, 25, 40, 60].map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => {
+                          handleToleranceChange(t);
+                          handleSliderCommit();
+                        }}
+                        className={`px-1.5 py-0.5 text-[10px] rounded-md border font-mono transition cursor-pointer ${
+                          chromaTolerance === t
+                            ? 'border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/40 font-bold'
+                            : 'border-black/[0.08] dark:border-white/[0.1] text-slate-500 hover:border-slate-400'
+                        }`}
+                      >
+                        {t}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Vertical separator */}
+                <div className="h-6 w-px bg-black/[0.08] dark:bg-white/[0.1] hidden lg:block" />
+
+                {/* Smoothness / Feathering Slider */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-600 dark:text-neutral-300">
+                    Kehalusan:
+                  </span>
+                  <span className="font-mono text-amber-600 dark:text-amber-400 font-bold text-xs w-8 text-right">
+                    {chromaSmoothness}%
+                  </span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="30"
+                    step="1"
+                    value={chromaSmoothness}
+                    onChange={(e) => handleSmoothnessChange(parseInt(e.target.value, 10))}
+                    onMouseUp={handleSliderCommit}
+                    onTouchEnd={handleSliderCommit}
+                    className="w-16 sm:w-24 accent-amber-500 cursor-pointer"
+                    title="Kehalusan tepi feathering untuk mencegah garis putih"
+                  />
+                </div>
+
+                {/* Woosh button */}
+                <button
+                  onClick={() => handleColorChange(chromaColor)}
+                  className="ml-auto px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-xs cursor-pointer shrink-0"
+                  title="Terapkan pembersihan warna seketika"
+                >
+                  <Zap className="w-3.5 h-3.5 fill-white" />
+                  <span>Hapus Seketika (Woosh!)</span>
+                </button>
+              </div>
+            ) : (
+              /* Brush Size controls when in Erase / Restore mode */
+              <div className="flex flex-wrap items-center gap-3 bg-black/[0.02] dark:bg-white/[0.04] px-3.5 py-1.5 rounded-2xl border border-black/[0.04] dark:border-white/[0.06] animate-fadeIn">
+                <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-neutral-300">
+                  <Sliders className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="font-semibold">Ukuran Kuas:</span>
+                  <span
+                    className={`font-mono font-bold w-12 text-right ${
+                      brushMode === 'erase'
+                        ? 'text-rose-500 dark:text-rose-400'
+                        : 'text-emerald-500 dark:text-emerald-400'
+                    }`}
+                  >
+                    {brushSize}px
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="200"
+                  step="1"
+                  value={brushSize}
+                  onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
+                  className={`w-24 md:w-36 cursor-pointer ${
+                    brushMode === 'erase' ? 'accent-rose-500' : 'accent-emerald-500'
+                  }`}
+                  title="Shift + Scroll pada foto untuk mengubah cepat"
+                />
+                <div className="flex items-center gap-1">
+                  {[15, 45, 90, 150].map((sz) => (
+                    <button
+                      key={sz}
+                      onClick={() => setBrushSize(sz)}
+                      className={`px-1.5 py-0.5 text-[10px] rounded-md border font-mono transition cursor-pointer ${
+                        brushSize === sz
+                          ? brushMode === 'erase'
+                            ? 'border-rose-500 text-rose-500 bg-rose-50 dark:bg-rose-950/40'
+                            : 'border-emerald-500 text-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
+                          : 'border-black/[0.08] dark:border-white/[0.1] text-slate-500 hover:border-slate-400'
+                      }`}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Background Color Bar & Zoom Controls */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-black/[0.05] dark:border-white/[0.06]">
@@ -975,7 +1491,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                     );
                   })}
 
-                  {/* Custom color picker */}
+                  {/* Custom preview background color */}
                   <label className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-medium border border-black/[0.06] dark:border-white/[0.08] bg-white/60 dark:bg-neutral-800/60 cursor-pointer hover:border-slate-300">
                     <input
                       type="color"
@@ -1067,27 +1583,58 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                   onMouseLeave={handleMouseLeave}
                   onContextMenu={(e) => e.preventDefault()}
                   className={`block max-w-full max-h-[500px] w-auto h-auto object-contain select-none ${
-                    isSpacePressed ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
+                    isSpacePressed
+                      ? 'cursor-grab active:cursor-grabbing'
+                      : brushMode === 'chroma' || isPickingColor
+                      ? 'cursor-crosshair'
+                      : 'cursor-crosshair'
                   }`}
                 />
 
-                {/* Live Brush Circle Cursor Overlay */}
-                {isHoveringCanvas && cursorPos && !isSpacePressed && !isPanningRef.current && (
-                  <div
-                    className={`pointer-events-none absolute rounded-full border-2 transition-transform duration-75 ${
-                      brushMode === 'erase'
-                        ? 'border-rose-500 bg-rose-500/20'
-                        : 'border-emerald-500 bg-emerald-500/20'
-                    }`}
-                    style={{
-                      width: `${Math.max(6, (brushSize * displayScale) / zoomLevel)}px`,
-                      height: `${Math.max(6, (brushSize * displayScale) / zoomLevel)}px`,
-                      left: `${cursorPos.x}px`,
-                      top: `${cursorPos.y}px`,
-                      transform: 'translate(-50%, -50%)',
-                    }}
-                  />
-                )}
+                {/* Live Brush Circle Cursor Overlay (Erase / Restore) */}
+                {isHoveringCanvas &&
+                  cursorPos &&
+                  (brushMode === 'erase' || brushMode === 'restore') &&
+                  !isSpacePressed &&
+                  !isPanningRef.current && (
+                    <div
+                      className={`pointer-events-none absolute rounded-full border-2 transition-transform duration-75 ${
+                        brushMode === 'erase'
+                          ? 'border-rose-500 bg-rose-500/20'
+                          : 'border-emerald-500 bg-emerald-500/20'
+                      }`}
+                      style={{
+                        width: `${Math.max(6, (brushSize * displayScale) / zoomLevel)}px`,
+                        height: `${Math.max(6, (brushSize * displayScale) / zoomLevel)}px`,
+                        left: `${cursorPos.x}px`,
+                        top: `${cursorPos.y}px`,
+                        transform: 'translate(-50%, -50%)',
+                      }}
+                    />
+                  )}
+
+                {/* Live Loupe / Color Swatch Hover Pill (Chroma Key) */}
+                {isHoveringCanvas &&
+                  cursorPos &&
+                  brushMode === 'chroma' &&
+                  !isSpacePressed &&
+                  !isPanningRef.current && (
+                    <div
+                      className="pointer-events-none absolute flex items-center gap-1.5 -translate-x-1/2 -translate-y-full pb-3 filter drop-shadow-md z-30 transition-all duration-75"
+                      style={{
+                        left: `${cursorPos.x}px`,
+                        top: `${cursorPos.y}px`,
+                      }}
+                    >
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-900/90 text-white text-[10px] font-mono border border-white/20 shadow-lg">
+                        <span
+                          className="w-3.5 h-3.5 rounded-full border border-white/40 shadow-inner"
+                          style={{ backgroundColor: hoverPixelColor || '#FFFFFF' }}
+                        />
+                        <span>{hoverPixelColor || '#FFFFFF'}</span>
+                      </div>
+                    </div>
+                  )}
               </div>
             </div>
 
@@ -1095,18 +1642,24 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
             <div className="absolute top-4 left-5 pointer-events-none flex items-center gap-2">
               <span
                 className={`text-[11px] font-semibold px-3 py-1 rounded-full shadow-md backdrop-blur-md flex items-center gap-1.5 ${
-                  brushMode === 'erase'
+                  brushMode === 'chroma'
+                    ? 'bg-amber-500/90 text-white'
+                    : brushMode === 'erase'
                     ? 'bg-rose-500/90 text-white'
                     : 'bg-emerald-500/90 text-white'
                 }`}
               >
-                {brushMode === 'erase' ? (
+                {brushMode === 'chroma' ? (
                   <>
-                    <Eraser className="w-3 h-3" /> Mode Hapus Latar Belakang
+                    <Pipette className="w-3 h-3" /> Mode Chroma Key: Klik di foto untuk memilih warna yang ingin dihilangkan
+                  </>
+                ) : brushMode === 'erase' ? (
+                  <>
+                    <Eraser className="w-3 h-3" /> Mode Hapus Latar Belakang (Kuas)
                   </>
                 ) : (
                   <>
-                    <Paintbrush className="w-3 h-3" /> Mode Pulihkan Foto Asli
+                    <Paintbrush className="w-3 h-3" /> Mode Pulihkan Foto Asli (Kuas)
                   </>
                 )}
               </span>
@@ -1121,6 +1674,13 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
 
           {/* Quick Shortcuts Guide Banner */}
           <div className="flex flex-wrap items-center justify-center gap-2.5 md:gap-4 text-[11px] text-slate-500 dark:text-neutral-400 bg-white/70 dark:bg-[#1E1E1E]/70 backdrop-blur-md p-2.5 px-4 rounded-2xl border border-black/[0.04] dark:border-white/[0.06]">
+            <span className="flex items-center gap-1.5 font-medium">
+              <kbd className="px-1.5 py-0.5 rounded bg-black/[0.06] dark:bg-white/[0.08] font-mono text-[10px] text-slate-700 dark:text-neutral-200 border border-black/[0.05]">
+                Klik Foto
+              </kbd>{' '}
+              Ambil Warna Chroma
+            </span>
+            <span className="text-slate-300 dark:text-neutral-600 hidden sm:inline">•</span>
             <span className="flex items-center gap-1.5 font-medium">
               <kbd className="px-1.5 py-0.5 rounded bg-black/[0.06] dark:bg-white/[0.08] font-mono text-[10px] text-slate-700 dark:text-neutral-200 border border-black/[0.05]">
                 Ctrl + Scroll
