@@ -93,6 +93,9 @@ pub fn run() {
             media_converter::start_audio_conversion,
             image_studio::process_image,
             image_studio::start_remove_background,
+            image_studio::load_image_base64,
+            image_studio::remove_background_preview,
+            image_studio::save_image_from_base64,
             pdf_suite::start_pdf_to_docx,
             pdf_suite::start_pdf_compress,
             pdf_suite::start_pdf_merge

@@ -6,6 +6,8 @@ use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::ImageFormat;
 use tauri::{AppHandle, Emitter};
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use crate::utils::{find_executable, TaskProgressPayload};
 
 const BG_SCRIPT_CONTENT: &str = include_str!("../scripts/bg_remover.py");
@@ -428,4 +430,122 @@ pub fn start_remove_background(
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn load_image_base64(path: String) -> Result<String, String> {
+    let file_path = Path::new(&path);
+    if !file_path.exists() {
+        return Err("File gambar tidak ditemukan.".to_string());
+    }
+
+    let bytes = std::fs::read(file_path)
+        .map_err(|e| format!("Gagal membaca file gambar: {}", e))?;
+
+    let ext = file_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("png")
+        .to_lowercase();
+    let mime = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        _ => "image/png",
+    };
+
+    let b64 = BASE64.encode(&bytes);
+    Ok(format!("data:{};base64,{}", mime, b64))
+}
+
+#[tauri::command]
+pub fn remove_background_preview(
+    input_path: String,
+    method: String,
+) -> Result<String, String> {
+    let in_path = PathBuf::from(&input_path);
+    if !in_path.exists() {
+        return Err("File gambar input tidak ditemukan.".to_string());
+    }
+
+    let temp_dir = std::env::temp_dir().join("multimedia_studio");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let temp_preview_path = temp_dir.join(format!("preview_nobg_{}.png", timestamp));
+    let out_str = temp_preview_path.to_string_lossy().to_string();
+
+    let python_exec = find_executable("python");
+    let mut success = false;
+
+    if let Some(py_path) = python_exec {
+        if let Ok(script_path) = get_or_create_bg_script() {
+            let mut cmd = Command::new(py_path);
+            cmd.arg(&script_path)
+                .arg("--input")
+                .arg(&input_path)
+                .arg("--output")
+                .arg(&out_str)
+                .arg("--method")
+                .arg(&method)
+                .arg("--bg-color")
+                .arg("transparent");
+
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            }
+
+            if let Ok(output) = cmd.output() {
+                if output.status.success() && temp_preview_path.exists() {
+                    success = true;
+                }
+            }
+        }
+    }
+
+    if !success {
+        // Native fallback in pure Rust
+        remove_background_native(&in_path, &temp_preview_path, "transparent")
+            .map_err(|e| format!("Gagal memotong latar belakang: {}", e))?;
+    }
+
+    let bytes = std::fs::read(&temp_preview_path)
+        .map_err(|e| format!("Gagal membaca hasil preview: {}", e))?;
+    let _ = std::fs::remove_file(&temp_preview_path);
+
+    let b64 = BASE64.encode(&bytes);
+    Ok(format!("data:image/png;base64,{}", b64))
+}
+
+#[tauri::command]
+pub fn save_image_from_base64(
+    data_base64: String,
+    output_dir: String,
+    filename: String,
+) -> Result<String, String> {
+    let clean_b64 = if let Some(idx) = data_base64.find("base64,") {
+        &data_base64[idx + 7..]
+    } else {
+        &data_base64
+    };
+
+    let bytes = BASE64
+        .decode(clean_b64.trim())
+        .map_err(|e| format!("Gagal memproses data gambar base64: {}", e))?;
+
+    let out_dir = Path::new(&output_dir);
+    if !out_dir.exists() {
+        std::fs::create_dir_all(out_dir)
+            .map_err(|e| format!("Gagal membuat folder penyimpanan: {}", e))?;
+    }
+
+    let target_file = out_dir.join(&filename);
+    std::fs::write(&target_file, bytes)
+        .map_err(|e| format!("Gagal menyimpan file gambar: {}", e))?;
+
+    Ok(target_file.to_string_lossy().to_string())
 }
