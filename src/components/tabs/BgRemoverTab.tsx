@@ -20,6 +20,7 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  Move,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -47,6 +48,8 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
   const [customColor, setCustomColor] = useState<string>('#FFFFFF');
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 800, height: 600 });
@@ -63,6 +66,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Canvas Refs
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
   const displayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const workingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const originalImgRef = useRef<HTMLImageElement | null>(null);
@@ -72,6 +76,8 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
   const historyRef = useRef<ImageData[]>([]);
   const historyIndexRef = useRef<number>(-1);
   const isDrawingRef = useRef<boolean>(false);
+  const isPanningRef = useRef<boolean>(false);
+  const startPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
 
   const colorPresets = [
@@ -95,6 +101,8 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
         setHasCutout(false);
         setSavedSuccessPath(null);
         setErrorMessage(null);
+        setZoomLevel(1);
+        setPan({ x: 0, y: 0 });
 
         // Auto default filename
         const stem = selected.split('\\').pop()?.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'foto';
@@ -157,6 +165,69 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
     }
   }, [hasCutout, bgColor, isComparing, canvasSize, renderDisplay]);
 
+  // Wheel gestures: Ctrl + Scroll = Zoom, Shift + Scroll = Brush Size
+  useEffect(() => {
+    const el = workspaceRef.current;
+    if (!el || !hasCutout) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        // Zoom In / Out (50% to 500%)
+        const delta = e.deltaY < 0 ? 0.2 : -0.2;
+        setZoomLevel((prev) => {
+          const next = Math.min(5, Math.max(0.5, prev + delta));
+          return Math.round(next * 100) / 100;
+        });
+      } else if (e.shiftKey) {
+        e.preventDefault();
+        // Change brush diameter (5px to 200px)
+        const delta = e.deltaY < 0 ? 5 : -5;
+        setBrushSize((prev) => Math.min(200, Math.max(5, prev + delta)));
+      }
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [hasCutout]);
+
+  // Keyboard Shortcuts: Space (Pan), Ctrl+Z (Undo), Ctrl+Y (Redo)
+  useEffect(() => {
+    if (!hasCutout) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.code === 'Space' && !e.repeat) {
+        e.preventDefault();
+        setIsSpacePressed(true);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpacePressed(false);
+        isPanningRef.current = false;
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [hasCutout, canUndo, canRedo]);
+
   // Run AI / Color background removal preview
   const handleExecuteAI = async () => {
     if (!selectedFile) return;
@@ -185,6 +256,8 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
           originalImgRef.current = origImg;
           cutoutImgRef.current = cutoutImg;
           setCanvasSize({ width: w, height: h });
+          setZoomLevel(1);
+          setPan({ x: 0, y: 0 });
 
           // Initialize offscreen working canvas
           if (!workingCanvasRef.current) {
@@ -285,9 +358,42 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
     renderDisplay();
   };
 
-  // Mouse interaction handlers
+  // Panning & Drawing Handlers
+  const handleWorkspaceMouseDown = (e: React.MouseEvent) => {
+    // If Space is held, or Middle Click (button 1), or Right Click (button 2): PAN
+    if (isSpacePressed || e.button === 1 || e.button === 2) {
+      e.preventDefault();
+      isPanningRef.current = true;
+      startPanRef.current = {
+        x: e.clientX - pan.x,
+        y: e.clientY - pan.y,
+      };
+      return;
+    }
+  };
+
+  const handleWorkspaceMouseMove = (e: React.MouseEvent) => {
+    if (isPanningRef.current) {
+      setPan({
+        x: e.clientX - startPanRef.current.x,
+        y: e.clientY - startPanRef.current.y,
+      });
+      return;
+    }
+  };
+
+  const handleWorkspaceMouseUp = () => {
+    if (isPanningRef.current) {
+      isPanningRef.current = false;
+    }
+  };
+
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (isComparing || !hasCutout) return;
+    // Don't draw if panning
+    if (isSpacePressed || e.button === 1 || e.button === 2) {
+      return;
+    }
     isDrawingRef.current = true;
     const coords = getCanvasCoords(e);
     lastPointRef.current = coords;
@@ -308,17 +414,18 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
       setDisplayScale(rect.width / canvas.width);
     }
 
-    if (!isDrawingRef.current || !lastPointRef.current) return;
+    if (!isDrawingRef.current || !lastPointRef.current || isPanningRef.current) return;
     const coords = getCanvasCoords(e);
     drawStroke(lastPointRef.current.x, lastPointRef.current.y, coords.x, coords.y);
     lastPointRef.current = coords;
   };
 
   const handleMouseUp = () => {
-    if (!isDrawingRef.current) return;
-    isDrawingRef.current = false;
-    lastPointRef.current = null;
-    pushHistorySnapshot();
+    if (isDrawingRef.current) {
+      isDrawingRef.current = false;
+      lastPointRef.current = null;
+      pushHistorySnapshot();
+    }
   };
 
   const handleMouseLeave = () => {
@@ -400,6 +507,11 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
     setCanRedo(false);
 
     renderDisplay();
+  };
+
+  const handleResetView = () => {
+    setZoomLevel(1);
+    setPan({ x: 0, y: 0 });
   };
 
   // Save the result to storage
@@ -514,7 +626,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                 Hapus Background Foto & Pas Foto
               </h1>
               <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                Potong otomatis dengan AI, perbaiki manual dengan brush hapus/pulihkan, lalu simpan ke komputer.
+                Potong otomatis dengan AI, perbaiki detail dengan kuas zoom interaktif, lalu simpan ke komputer.
               </p>
             </div>
           </div>
@@ -755,7 +867,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
               <div className="flex items-center gap-3 bg-black/[0.02] dark:bg-white/[0.04] px-3.5 py-1.5 rounded-2xl border border-black/[0.04] dark:border-white/[0.06]">
                 <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-neutral-300">
                   <Sliders className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="font-semibold">Ukuran Brush:</span>
+                  <span className="font-semibold">Ukuran Kuas:</span>
                   <span className="font-mono text-rose-500 dark:text-rose-400 font-bold w-12 text-right">
                     {brushSize}px
                   </span>
@@ -768,6 +880,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                   value={brushSize}
                   onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
                   className="w-24 md:w-36 accent-rose-500 cursor-pointer"
+                  title="Shift + Scroll pada foto untuk mengubah cepat"
                 />
                 <div className="flex items-center gap-1">
                   {[15, 45, 90, 150].map((sz) => (
@@ -791,7 +904,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                 <button
                   onClick={handleUndo}
                   disabled={!canUndo}
-                  title="Undo coretan (Batal)"
+                  title="Undo coretan (Ctrl + Z)"
                   className="p-2 rounded-xl border border-black/[0.06] dark:border-white/[0.08] text-slate-600 dark:text-neutral-300 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition cursor-pointer"
                 >
                   <Undo2 className="w-4 h-4" />
@@ -799,7 +912,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                 <button
                   onClick={handleRedo}
                   disabled={!canRedo}
-                  title="Redo coretan"
+                  title="Redo coretan (Ctrl + Y)"
                   className="p-2 rounded-xl border border-black/[0.06] dark:border-white/[0.08] text-slate-600 dark:text-neutral-300 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition cursor-pointer"
                 >
                   <Redo2 className="w-4 h-4" />
@@ -830,7 +943,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
               </div>
             </div>
 
-            {/* Background Color Bar */}
+            {/* Background Color Bar & Zoom Controls */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-black/[0.05] dark:border-white/[0.06]">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-slate-700 dark:text-neutral-300">
@@ -878,45 +991,57 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                 </div>
               </div>
 
-              {/* Zoom Buttons */}
-              <div className="flex items-center gap-1">
+              {/* Zoom Buttons with Reset */}
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1 bg-black/[0.03] dark:bg-white/[0.04] p-0.5 rounded-xl border border-black/[0.05] dark:border-white/[0.06]">
+                  <button
+                    onClick={() => setZoomLevel((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}
+                    className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-neutral-100 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition cursor-pointer"
+                    title="Perkecil (Ctrl + Scroll Down)"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-[11px] font-mono text-slate-600 dark:text-neutral-300 px-1.5 min-w-[46px] text-center font-bold">
+                    {Math.round(zoomLevel * 100)}%
+                  </span>
+                  <button
+                    onClick={() => setZoomLevel((z) => Math.min(5, Math.round((z + 0.25) * 100) / 100))}
+                    className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-neutral-100 hover:bg-black/[0.05] dark:hover:bg-white/[0.08] transition cursor-pointer"
+                    title="Perbesar (Ctrl + Scroll Up)"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
                 <button
-                  onClick={() => setZoomLevel((z) => Math.max(0.8, z - 0.2))}
-                  className="p-1.5 rounded-lg border border-black/[0.06] dark:border-white/[0.08] text-slate-500 hover:text-slate-800 dark:hover:text-neutral-100 transition cursor-pointer"
-                  title="Perkecil Tampilan"
-                >
-                  <ZoomOut className="w-3.5 h-3.5" />
-                </button>
-                <span className="text-[11px] font-mono text-slate-500 px-1 min-w-[40px] text-center">
-                  {Math.round(zoomLevel * 100)}%
-                </span>
-                <button
-                  onClick={() => setZoomLevel((z) => Math.min(2.5, z + 0.2))}
-                  className="p-1.5 rounded-lg border border-black/[0.06] dark:border-white/[0.08] text-slate-500 hover:text-slate-800 dark:hover:text-neutral-100 transition cursor-pointer"
-                  title="Perbesar Tampilan (Detail Halus)"
-                >
-                  <ZoomIn className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setZoomLevel(1)}
-                  className="p-1.5 rounded-lg border border-black/[0.06] dark:border-white/[0.08] text-slate-500 hover:text-slate-800 dark:hover:text-neutral-100 transition cursor-pointer"
-                  title="Reset Fit to Screen"
+                  onClick={handleResetView}
+                  className="px-2.5 py-1.5 rounded-xl border border-black/[0.06] dark:border-white/[0.08] text-slate-600 dark:text-neutral-300 hover:text-slate-800 dark:hover:text-neutral-100 text-xs font-medium hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition cursor-pointer flex items-center gap-1"
+                  title="Kembalikan Tampilan Penuh (Fit)"
                 >
                   <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Fit</span>
                 </button>
               </div>
             </div>
           </div>
 
           {/* Interactive Canvas Workspace */}
-          <div className="relative bg-[#E5E5EA] dark:bg-[#141414] rounded-3xl p-4 md:p-6 overflow-hidden border border-black/[0.08] dark:border-white/[0.08] shadow-inner flex items-center justify-center min-h-[420px] max-h-[620px]">
+          <div
+            ref={workspaceRef}
+            onMouseDown={handleWorkspaceMouseDown}
+            onMouseMove={handleWorkspaceMouseMove}
+            onMouseUp={handleWorkspaceMouseUp}
+            className={`relative bg-[#E5E5EA] dark:bg-[#141414] rounded-3xl p-4 md:p-6 overflow-hidden border border-black/[0.08] dark:border-white/[0.08] shadow-inner flex items-center justify-center min-h-[440px] max-h-[640px] select-none ${
+              isSpacePressed ? 'cursor-grab active:cursor-grabbing' : ''
+            }`}
+          >
             {/* Checkerboard Pattern for transparent areas */}
             <div
-              className="relative max-w-full max-h-[560px] overflow-auto rounded-2xl shadow-xl flex items-center justify-center"
+              className="relative rounded-2xl shadow-xl flex items-center justify-center"
               style={{
-                transform: `scale(${zoomLevel})`,
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})`,
                 transformOrigin: 'center center',
-                transition: 'transform 0.15s ease-out',
+                transition: isPanningRef.current ? 'none' : 'transform 0.08s ease-out',
               }}
             >
               <div
@@ -940,11 +1065,14 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                   onMouseUp={handleMouseUp}
                   onMouseEnter={() => setIsHoveringCanvas(true)}
                   onMouseLeave={handleMouseLeave}
-                  className="block max-w-full max-h-[500px] w-auto h-auto object-contain cursor-crosshair select-none"
+                  onContextMenu={(e) => e.preventDefault()}
+                  className={`block max-w-full max-h-[500px] w-auto h-auto object-contain select-none ${
+                    isSpacePressed ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
+                  }`}
                 />
 
                 {/* Live Brush Circle Cursor Overlay */}
-                {isHoveringCanvas && cursorPos && (
+                {isHoveringCanvas && cursorPos && !isSpacePressed && !isPanningRef.current && (
                   <div
                     className={`pointer-events-none absolute rounded-full border-2 transition-transform duration-75 ${
                       brushMode === 'erase'
@@ -952,8 +1080,8 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                         : 'border-emerald-500 bg-emerald-500/20'
                     }`}
                     style={{
-                      width: `${Math.max(6, brushSize * displayScale)}px`,
-                      height: `${Math.max(6, brushSize * displayScale)}px`,
+                      width: `${Math.max(6, (brushSize * displayScale) / zoomLevel)}px`,
+                      height: `${Math.max(6, (brushSize * displayScale) / zoomLevel)}px`,
                       left: `${cursorPos.x}px`,
                       top: `${cursorPos.y}px`,
                       transform: 'translate(-50%, -50%)',
@@ -964,7 +1092,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
             </div>
 
             {/* Mode & Action Pill Floating Tag */}
-            <div className="absolute top-4 left-5 pointer-events-none">
+            <div className="absolute top-4 left-5 pointer-events-none flex items-center gap-2">
               <span
                 className={`text-[11px] font-semibold px-3 py-1 rounded-full shadow-md backdrop-blur-md flex items-center gap-1.5 ${
                   brushMode === 'erase'
@@ -982,7 +1110,48 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                   </>
                 )}
               </span>
+
+              {zoomLevel !== 1 && (
+                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-white shadow-md flex items-center gap-1">
+                  <Move className="w-3 h-3" /> Zoom: {Math.round(zoomLevel * 100)}%
+                </span>
+              )}
             </div>
+          </div>
+
+          {/* Quick Shortcuts Guide Banner */}
+          <div className="flex flex-wrap items-center justify-center gap-2.5 md:gap-4 text-[11px] text-slate-500 dark:text-neutral-400 bg-white/70 dark:bg-[#1E1E1E]/70 backdrop-blur-md p-2.5 px-4 rounded-2xl border border-black/[0.04] dark:border-white/[0.06]">
+            <span className="flex items-center gap-1.5 font-medium">
+              <kbd className="px-1.5 py-0.5 rounded bg-black/[0.06] dark:bg-white/[0.08] font-mono text-[10px] text-slate-700 dark:text-neutral-200 border border-black/[0.05]">
+                Ctrl + Scroll
+              </kbd>{' '}
+              Zoom In/Out
+            </span>
+            <span className="text-slate-300 dark:text-neutral-600 hidden sm:inline">•</span>
+            <span className="flex items-center gap-1.5 font-medium">
+              <kbd className="px-1.5 py-0.5 rounded bg-black/[0.06] dark:bg-white/[0.08] font-mono text-[10px] text-slate-700 dark:text-neutral-200 border border-black/[0.05]">
+                Shift + Scroll
+              </kbd>{' '}
+              Ubah Ukuran Kuas
+            </span>
+            <span className="text-slate-300 dark:text-neutral-600 hidden sm:inline">•</span>
+            <span className="flex items-center gap-1.5 font-medium">
+              <kbd className="px-1.5 py-0.5 rounded bg-black/[0.06] dark:bg-white/[0.08] font-mono text-[10px] text-slate-700 dark:text-neutral-200 border border-black/[0.05]">
+                Spasi + Drag
+              </kbd>{' '}
+              atau{' '}
+              <kbd className="px-1.5 py-0.5 rounded bg-black/[0.06] dark:bg-white/[0.08] font-mono text-[10px] text-slate-700 dark:text-neutral-200 border border-black/[0.05]">
+                Klik Kanan
+              </kbd>{' '}
+              Geser Kanvas
+            </span>
+            <span className="text-slate-300 dark:text-neutral-600 hidden sm:inline">•</span>
+            <span className="flex items-center gap-1.5 font-medium">
+              <kbd className="px-1.5 py-0.5 rounded bg-black/[0.06] dark:bg-white/[0.08] font-mono text-[10px] text-slate-700 dark:text-neutral-200 border border-black/[0.05]">
+                Ctrl + Z
+              </kbd>{' '}
+              Batal
+            </span>
           </div>
 
           {/* STEP 3: Save to Storage Bar */}
