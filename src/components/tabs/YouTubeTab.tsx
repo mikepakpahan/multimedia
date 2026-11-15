@@ -14,13 +14,12 @@ import { EngineStatus, YouTubeMetadata } from '../../types';
 import { invoke } from '@tauri-apps/api/core';
 
 interface YouTubeTabProps {
-  engineStatus: EngineStatus | null;
+  engineStatus?: EngineStatus | null;
   outputDir: string;
   onStartDownload: (url: string, format: string, metadata?: YouTubeMetadata) => void;
 }
 
 export const YouTubeTab: React.FC<YouTubeTabProps> = ({
-  engineStatus,
   outputDir,
   onStartDownload,
 }) => {
@@ -106,13 +105,6 @@ export const YouTubeTab: React.FC<YouTubeTabProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-6 animate-fadeIn">
-      {/* Engine Warning if yt-dlp missing */}
-      {engineStatus && !engineStatus.ytdlp_installed && (
-        <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 p-4 rounded-2xl text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
-          <span>⚠️ Engine <strong>yt-dlp</strong> belum siap. Buka menu Pengaturan untuk memeriksa status.</span>
-        </div>
-      )}
-
       {/* Header Banner (macOS Style) */}
       <div className="bg-white dark:bg-neutral-800/90 border border-black/[0.06] dark:border-white/[0.08] p-6 rounded-3xl shadow-sm">
         <div className="flex items-center gap-4">

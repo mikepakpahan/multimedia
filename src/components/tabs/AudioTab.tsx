@@ -18,13 +18,12 @@ import { EngineStatus } from '../../types';
 
 interface AudioTabProps {
   outputDir: string;
-  engineStatus: EngineStatus | null;
+  engineStatus?: EngineStatus | null;
   onStartConversion: (filePath: string, targetFormat: string, bitrate: string) => void;
 }
 
 export const AudioTab: React.FC<AudioTabProps> = ({
   outputDir,
-  engineStatus,
   onStartConversion,
 }) => {
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
@@ -86,13 +85,6 @@ export const AudioTab: React.FC<AudioTabProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-fadeIn pb-8">
-      {/* Engine Status Warning */}
-      {engineStatus && !engineStatus.ffmpeg_installed && (
-        <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 p-4 rounded-2xl text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
-          <span>⚠️ Engine <strong>FFmpeg</strong> belum terdeteksi. Silakan periksa di menu Pengaturan.</span>
-        </div>
-      )}
-
       {/* Hero Header */}
       <div className="bg-white/80 dark:bg-[#1E1E1E]/80 backdrop-blur-xl border border-black/[0.06] dark:border-white/[0.08] p-6 md:p-7 rounded-3xl shadow-sm">
         <div className="flex items-center gap-4">

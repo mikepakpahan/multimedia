@@ -1,21 +1,19 @@
 import React from 'react';
-import { Settings, Folder, CheckCircle2, AlertCircle, RefreshCw, Music, FolderOpen } from 'lucide-react';
+import { Settings, Folder, Music, FolderOpen } from 'lucide-react';
 import { EngineStatus } from '../../types';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
 interface SettingsTabProps {
-  engineStatus: EngineStatus | null;
+  engineStatus?: EngineStatus | null;
   outputDir: string;
   setOutputDir: (dir: string) => void;
-  onRefreshEngines: () => void;
+  onRefreshEngines?: () => void;
 }
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
-  engineStatus,
   outputDir,
   setOutputDir,
-  onRefreshEngines,
 }) => {
   const handleSelectFolder = async () => {
     try {
@@ -50,10 +48,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           </div>
           <div>
             <h1 className="text-xl md:text-2xl font-semibold text-slate-800 dark:text-slate-100 tracking-tight">
-              Pengaturan & Informasi Sistem
+              Pengaturan Aplikasi
             </h1>
             <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Konfigurasi folder penyimpanan default, status engine multimedia, dan panduan tim gereja.
+              Konfigurasi folder penyimpanan default dan panduan praktis penggunaan studio multimedia.
             </p>
           </div>
         </div>
@@ -90,59 +88,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             >
               <FolderOpen className="w-3.5 h-3.5" /> Buka di Explorer
             </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Engine Status */}
-      <div className="bg-white/80 dark:bg-[#1E1E1E]/80 backdrop-blur-xl border border-black/[0.06] dark:border-white/[0.08] p-5 md:p-6 rounded-3xl space-y-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-            Status Engine Multimedia Lokal
-          </h2>
-          <button
-            onClick={onRefreshEngines}
-            className="text-xs text-blue-500 hover:underline flex items-center gap-1.5 transition font-medium cursor-pointer"
-          >
-            <RefreshCw className="w-3.5 h-3.5" /> Segarkan Status
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="p-4 bg-slate-50/70 dark:bg-neutral-800/60 border border-black/[0.04] dark:border-white/[0.06] rounded-2xl space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">FFmpeg (Video & Audio)</span>
-              {engineStatus?.ffmpeg_installed ? (
-                <span className="inline-flex items-center gap-1 text-emerald-500 text-xs font-medium">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Siap Digunakan
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-amber-500 text-xs font-medium">
-                  <AlertCircle className="w-3.5 h-3.5" /> Belum Terpasang
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 break-all font-mono">
-              {engineStatus?.ffmpeg_path || 'Otomatis digunakan untuk memproses video & audio.'}
-            </p>
-          </div>
-
-          <div className="p-4 bg-slate-50/70 dark:bg-neutral-800/60 border border-black/[0.04] dark:border-white/[0.06] rounded-2xl space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">yt-dlp (Unduh YouTube)</span>
-              {engineStatus?.ytdlp_installed ? (
-                <span className="inline-flex items-center gap-1 text-emerald-500 text-xs font-medium">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Siap Digunakan
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-amber-500 text-xs font-medium">
-                  <AlertCircle className="w-3.5 h-3.5" /> Belum Terpasang
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 break-all font-mono">
-              {engineStatus?.ytdlp_path || 'Mendukung unduhan lagu & video dari link.'}
-            </p>
           </div>
         </div>
       </div>

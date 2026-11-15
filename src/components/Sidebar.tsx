@@ -6,8 +6,6 @@ import {
   Image as ImageIcon,
   FileText,
   Settings,
-  CheckCircle2,
-  AlertCircle,
   PanelLeftClose,
   PanelLeftOpen,
   Wand2,
@@ -19,7 +17,7 @@ import { TabType, EngineStatus } from '../types';
 interface SidebarProps {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
-  engineStatus: EngineStatus | null;
+  engineStatus?: EngineStatus | null;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
 }
@@ -27,7 +25,6 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   setActiveTab,
-  engineStatus,
   isCollapsed,
   onToggleCollapse,
 }) => {
@@ -201,58 +198,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
         ))}
-      </div>
-
-      {/* Engine Status at bottom */}
-      <div className={`border-t border-black/[0.06] dark:border-white/[0.06] ${isCollapsed ? 'p-2' : 'p-3'}`}>
-        {!isCollapsed ? (
-          <div className="p-2 rounded-xl bg-white/60 dark:bg-neutral-800/60 border border-black/[0.04] dark:border-white/[0.06] text-[11px] space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500 dark:text-neutral-400">FFmpeg:</span>
-              <span className="flex items-center gap-1 font-medium text-[10px]">
-                {engineStatus?.ffmpeg_installed ? (
-                  <span className="text-emerald-500 flex items-center gap-0.5">
-                    <CheckCircle2 className="w-3 h-3" /> Siap
-                  </span>
-                ) : (
-                  <span className="text-amber-500 flex items-center gap-0.5">
-                    <AlertCircle className="w-3 h-3" /> Standby
-                  </span>
-                )}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500 dark:text-neutral-400">yt-dlp:</span>
-              <span className="flex items-center gap-1 font-medium text-[10px]">
-                {engineStatus?.ytdlp_installed ? (
-                  <span className="text-emerald-500 flex items-center gap-0.5">
-                    <CheckCircle2 className="w-3 h-3" /> Siap
-                  </span>
-                ) : (
-                  <span className="text-amber-500 flex items-center gap-0.5">
-                    <AlertCircle className="w-3 h-3" /> Standby
-                  </span>
-                )}
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div
-            title={`FFmpeg: ${engineStatus?.ffmpeg_installed ? 'Siap' : 'Standby'} | yt-dlp: ${engineStatus?.ytdlp_installed ? 'Siap' : 'Standby'}`}
-            className="p-2 rounded-xl bg-white/60 dark:bg-neutral-800/60 border border-black/[0.04] dark:border-white/[0.06] flex flex-col items-center gap-1.5 cursor-default"
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                engineStatus?.ffmpeg_installed ? 'bg-emerald-500' : 'bg-amber-500'
-              }`}
-            />
-            <span
-              className={`w-2 h-2 rounded-full ${
-                engineStatus?.ytdlp_installed ? 'bg-emerald-500' : 'bg-amber-500'
-              }`}
-            />
-          </div>
-        )}
       </div>
     </aside>
   );
