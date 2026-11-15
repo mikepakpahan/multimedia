@@ -42,13 +42,14 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
   // Step 2: Interactive Studio State
   const [hasCutout, setHasCutout] = useState<boolean>(false);
   const [brushMode, setBrushMode] = useState<BrushMode>('erase');
-  const [brushSize, setBrushSize] = useState<number>(35);
+  const [brushSize, setBrushSize] = useState<number>(45);
   const [bgColor, setBgColor] = useState<string>('transparent');
   const [customColor, setCustomColor] = useState<string>('#FFFFFF');
   const [isComparing, setIsComparing] = useState<boolean>(false);
-  const [zoomLevel, setZoomLevel] = useState<number>(1); // 1 = fit, 1.5, 2
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 800, height: 600 });
 
   // Brush Cursor indicator state
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
@@ -62,10 +63,10 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Canvas Refs
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const displayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const workingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const originalImgRef = useRef<HTMLImageElement | null>(null);
-  const tempCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cutoutImgRef = useRef<HTMLImageElement | null>(null);
 
   // Undo / Redo history
   const historyRef = useRef<ImageData[]>([]);
@@ -96,7 +97,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
         setErrorMessage(null);
 
         // Auto default filename
-        const stem = selected.split('\\').pop()?.split('/').pop()?.replace(/\.[^/.]+$/, "") || "foto";
+        const stem = selected.split('\\').pop()?.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'foto';
         setFilenameInput(`${stem}_nobg.png`);
 
         // Load original preview base64 from Rust
@@ -113,157 +114,128 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
     }
   };
 
+  // Render display canvas
+  const renderDisplay = useCallback(() => {
+    const canvas = displayCanvasRef.current;
+    const working = workingCanvasRef.current;
+    const orig = originalImgRef.current;
+    if (!canvas || !working || !orig) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const w = canvas.width;
+    const h = canvas.height;
+
+    ctx.clearRect(0, 0, w, h);
+
+    if (isComparing) {
+      // Hold to view original
+      ctx.drawImage(orig, 0, 0, w, h);
+      return;
+    }
+
+    if (bgColor !== 'transparent') {
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    // Draw the active working transparent cut-out image
+    ctx.drawImage(working, 0, 0, w, h);
+
+    // Update displayScale for accurate brush circle
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width > 0 && canvas.width > 0) {
+      setDisplayScale(rect.width / canvas.width);
+    }
+  }, [bgColor, isComparing]);
+
+  // Synchronize display rendering
+  useEffect(() => {
+    if (hasCutout) {
+      renderDisplay();
+    }
+  }, [hasCutout, bgColor, isComparing, canvasSize, renderDisplay]);
+
   // Run AI / Color background removal preview
   const handleExecuteAI = async () => {
     if (!selectedFile) return;
     setIsProcessingAI(true);
-    setProcessingMsg('Memproses segmentasi AI...');
+    setProcessingMsg('Memotong latar belakang dengan AI...');
     setErrorMessage(null);
 
     try {
-      // Get AI transparent cutout as base64 from Rust
+      // 1. Get AI transparent cutout as base64 from Rust
       const cutoutBase64 = await invoke<string>('remove_background_preview', {
         inputPath: selectedFile,
         method,
       });
 
-      // Load both images into memory and initialize mask canvas
-      await initEditorCanvases(originalBase64 || cutoutBase64, cutoutBase64);
-      setHasCutout(true);
-    } catch (err) {
-      console.error('AI Removal error:', err);
-      setErrorMessage('Gagal memproses pemotongan AI: ' + String(err));
-    } finally {
-      setIsProcessingAI(false);
-    }
-  };
-
-  // Initialize Canvas & Offscreen Mask
-  const initEditorCanvases = async (origB64: string, cutoutB64: string) => {
-    return new Promise<void>((resolve, reject) => {
+      // 2. Load both images into memory
       const origImg = new Image();
       const cutoutImg = new Image();
 
       let loadedCount = 0;
-      const onImageLoaded = () => {
+      const onBothLoaded = () => {
         loadedCount++;
         if (loadedCount === 2) {
           const w = origImg.naturalWidth;
           const h = origImg.naturalHeight;
 
           originalImgRef.current = origImg;
+          cutoutImgRef.current = cutoutImg;
+          setCanvasSize({ width: w, height: h });
 
-          // Display canvas setup
-          const canvas = canvasRef.current;
-          if (canvas) {
-            canvas.width = w;
-            canvas.height = h;
+          // Initialize offscreen working canvas
+          if (!workingCanvasRef.current) {
+            workingCanvasRef.current = document.createElement('canvas');
+          }
+          const working = workingCanvasRef.current;
+          working.width = w;
+          working.height = h;
+
+          const wCtx = working.getContext('2d', { willReadFrequently: true });
+          if (wCtx) {
+            wCtx.clearRect(0, 0, w, h);
+            wCtx.drawImage(cutoutImg, 0, 0, w, h);
+
+            // Initial snapshot in history
+            const initialSnapshot = wCtx.getImageData(0, 0, w, h);
+            historyRef.current = [initialSnapshot];
+            historyIndexRef.current = 0;
+            setCanUndo(false);
+            setCanRedo(false);
           }
 
-          // Offscreen mask canvas setup
-          if (!maskCanvasRef.current) {
-            maskCanvasRef.current = document.createElement('canvas');
-          }
-          const maskCanvas = maskCanvasRef.current;
-          maskCanvas.width = w;
-          maskCanvas.height = h;
-
-          const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
-          if (!maskCtx) {
-            reject(new Error('Cannot get 2D context'));
-            return;
-          }
-
-          // Initial mask: draw cutout image into mask canvas
-          maskCtx.clearRect(0, 0, w, h);
-          maskCtx.drawImage(cutoutImg, 0, 0);
-
-          // Temp composite canvas
-          if (!tempCanvasRef.current) {
-            tempCanvasRef.current = document.createElement('canvas');
-          }
-          tempCanvasRef.current.width = w;
-          tempCanvasRef.current.height = h;
-
-          // Initial snapshot in history
-          const initialSnapshot = maskCtx.getImageData(0, 0, w, h);
-          historyRef.current = [initialSnapshot];
-          historyIndexRef.current = 0;
-          setCanUndo(false);
-          setCanRedo(false);
-
-          // Render first composite frame
-          renderComposite();
-          resolve();
+          setHasCutout(true);
+          setIsProcessingAI(false);
         }
       };
 
-      origImg.onload = onImageLoaded;
-      origImg.onerror = () => reject(new Error('Failed to load original image'));
-      cutoutImg.onload = onImageLoaded;
-      cutoutImg.onerror = () => reject(new Error('Failed to load cutout image'));
+      origImg.onload = onBothLoaded;
+      origImg.onerror = () => {
+        setIsProcessingAI(false);
+        setErrorMessage('Gagal memuat data foto asli ke canvas.');
+      };
 
-      origImg.src = origB64;
-      cutoutImg.src = cutoutB64;
-    });
+      cutoutImg.onload = onBothLoaded;
+      cutoutImg.onerror = () => {
+        setIsProcessingAI(false);
+        setErrorMessage('Gagal memuat data hasil potongan AI ke canvas.');
+      };
+
+      origImg.src = originalBase64 || cutoutBase64;
+      cutoutImg.src = cutoutBase64;
+    } catch (err) {
+      console.error('AI Removal error:', err);
+      setIsProcessingAI(false);
+      setErrorMessage('Gagal memproses pemotongan AI: ' + String(err));
+    }
   };
-
-  // Render composite display canvas
-  const renderComposite = useCallback(() => {
-    const canvas = canvasRef.current;
-    const maskCanvas = maskCanvasRef.current;
-    const origImg = originalImgRef.current;
-    const tempCanvas = tempCanvasRef.current;
-
-    if (!canvas || !maskCanvas || !origImg || !tempCanvas) return;
-
-    const ctx = canvas.getContext('2d');
-    const tempCtx = tempCanvas.getContext('2d');
-    if (!ctx || !tempCtx) return;
-
-    const w = canvas.width;
-    const h = canvas.height;
-
-    // If user is holding "Compare" (Lihat Asli), render original image directly
-    if (isComparing) {
-      ctx.clearRect(0, 0, w, h);
-      ctx.drawImage(origImg, 0, 0);
-      return;
-    }
-
-    // 1. Draw original masked by maskCanvas onto tempCanvas
-    tempCtx.clearRect(0, 0, w, h);
-    tempCtx.drawImage(origImg, 0, 0);
-    tempCtx.globalCompositeOperation = 'destination-in';
-    tempCtx.drawImage(maskCanvas, 0, 0);
-    tempCtx.globalCompositeOperation = 'source-over'; // reset
-
-    // 2. Draw background color (if not transparent) on main canvas
-    ctx.clearRect(0, 0, w, h);
-    if (bgColor !== 'transparent') {
-      ctx.fillStyle = bgColor;
-      ctx.fillRect(0, 0, w, h);
-    }
-
-    // 3. Draw cut-out subject on top
-    ctx.drawImage(tempCanvas, 0, 0);
-
-    // Update display scale for brush circle
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width > 0) {
-      setDisplayScale(rect.width / canvas.width);
-    }
-  }, [bgColor, isComparing]);
-
-  useEffect(() => {
-    if (hasCutout) {
-      renderComposite();
-    }
-  }, [bgColor, isComparing, hasCutout, renderComposite]);
 
   // Translate mouse coordinate to natural canvas coordinate
   const getCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
+    const canvas = displayCanvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
@@ -274,35 +246,43 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
     };
   };
 
-  // Execute brush stroke on maskCanvas
+  // Execute brush stroke directly on workingCanvas
   const drawStroke = (x1: number, y1: number, x2: number, y2: number) => {
-    const maskCanvas = maskCanvasRef.current;
-    if (!maskCanvas) return;
-    const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
-    if (!maskCtx) return;
+    const working = workingCanvasRef.current;
+    const orig = originalImgRef.current;
+    if (!working || !orig) return;
 
-    maskCtx.save();
-    maskCtx.lineWidth = brushSize;
-    maskCtx.lineCap = 'round';
-    maskCtx.lineJoin = 'round';
+    const wCtx = working.getContext('2d', { willReadFrequently: true });
+    if (!wCtx) return;
+
+    wCtx.save();
+    wCtx.lineWidth = brushSize;
+    wCtx.lineCap = 'round';
+    wCtx.lineJoin = 'round';
 
     if (brushMode === 'erase') {
-      // Destination-out erases opacity from the mask
-      maskCtx.globalCompositeOperation = 'destination-out';
-      maskCtx.strokeStyle = 'rgba(0,0,0,1)';
+      // Erase: removes pixels directly to transparency
+      wCtx.globalCompositeOperation = 'destination-out';
+      wCtx.strokeStyle = 'rgba(0,0,0,1)';
+      wCtx.beginPath();
+      wCtx.moveTo(x1, y1);
+      wCtx.lineTo(x2, y2);
+      wCtx.stroke();
     } else {
-      // Source-over restores solid opacity (reveals original photo)
-      maskCtx.globalCompositeOperation = 'source-over';
-      maskCtx.strokeStyle = 'rgba(255,255,255,1)';
+      // Restore: paints pixels from original photo with 100% perfect registration
+      wCtx.globalCompositeOperation = 'source-over';
+      const pattern = wCtx.createPattern(orig, 'no-repeat');
+      if (pattern) {
+        wCtx.strokeStyle = pattern;
+        wCtx.beginPath();
+        wCtx.moveTo(x1, y1);
+        wCtx.lineTo(x2, y2);
+        wCtx.stroke();
+      }
     }
 
-    maskCtx.beginPath();
-    maskCtx.moveTo(x1, y1);
-    maskCtx.lineTo(x2, y2);
-    maskCtx.stroke();
-    maskCtx.restore();
-
-    renderComposite();
+    wCtx.restore();
+    renderDisplay();
   };
 
   // Mouse interaction handlers
@@ -315,7 +295,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
+    const canvas = displayCanvasRef.current;
     if (!canvas) return;
 
     // Update visual circle cursor
@@ -324,7 +304,9 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
     });
-    setDisplayScale(rect.width / canvas.width);
+    if (rect.width > 0 && canvas.width > 0) {
+      setDisplayScale(rect.width / canvas.width);
+    }
 
     if (!isDrawingRef.current || !lastPointRef.current) return;
     const coords = getCanvasCoords(e);
@@ -351,15 +333,15 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
 
   // Push snapshot to history stack
   const pushHistorySnapshot = () => {
-    const maskCanvas = maskCanvasRef.current;
-    if (!maskCanvas) return;
-    const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
-    if (!maskCtx) return;
+    const working = workingCanvasRef.current;
+    if (!working) return;
+    const wCtx = working.getContext('2d', { willReadFrequently: true });
+    if (!wCtx) return;
 
-    const snapshot = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+    const snapshot = wCtx.getImageData(0, 0, working.width, working.height);
     const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
 
-    // Limit to 20 undo steps to preserve memory
+    // Limit to 20 undo steps
     if (newHistory.length >= 20) {
       newHistory.shift();
     }
@@ -386,15 +368,15 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
   };
 
   const restoreHistory = (index: number) => {
-    const maskCanvas = maskCanvasRef.current;
-    if (!maskCanvas) return;
-    const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
-    if (!maskCtx) return;
+    const working = workingCanvasRef.current;
+    if (!working) return;
+    const wCtx = working.getContext('2d', { willReadFrequently: true });
+    if (!wCtx) return;
 
     const snapshot = historyRef.current[index];
     if (snapshot) {
-      maskCtx.putImageData(snapshot, 0, 0);
-      renderComposite();
+      wCtx.putImageData(snapshot, 0, 0);
+      renderDisplay();
     }
     setCanUndo(index > 0);
     setCanRedo(index < historyRef.current.length - 1);
@@ -402,16 +384,29 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
 
   // Reset to initial AI cutout
   const handleResetToAI = () => {
-    if (historyRef.current.length > 0) {
-      historyIndexRef.current = 0;
-      restoreHistory(0);
-    }
+    const working = workingCanvasRef.current;
+    const cutout = cutoutImgRef.current;
+    if (!working || !cutout) return;
+    const wCtx = working.getContext('2d', { willReadFrequently: true });
+    if (!wCtx) return;
+
+    wCtx.clearRect(0, 0, working.width, working.height);
+    wCtx.drawImage(cutout, 0, 0, working.width, working.height);
+
+    const snapshot = wCtx.getImageData(0, 0, working.width, working.height);
+    historyRef.current.push(snapshot);
+    historyIndexRef.current = historyRef.current.length - 1;
+    setCanUndo(true);
+    setCanRedo(false);
+
+    renderDisplay();
   };
 
   // Save the result to storage
   const handleSaveToStorage = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas || !selectedFile) return;
+    const working = workingCanvasRef.current;
+    const display = displayCanvasRef.current;
+    if (!working || !display || !selectedFile) return;
 
     setIsSaving(true);
     setErrorMessage(null);
@@ -419,33 +414,24 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
 
     try {
       const isTransparent = bgColor === 'transparent';
-      const format = isTransparent ? 'image/png' : 'image/jpeg';
       const defaultExt = isTransparent ? 'png' : 'jpg';
 
-      // Full export canvas
-      const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = canvas.width;
-      exportCanvas.height = canvas.height;
-      const exportCtx = exportCanvas.getContext('2d')!;
-
-      // Background color
-      if (!isTransparent) {
-        exportCtx.fillStyle = bgColor;
-        exportCtx.fillRect(0, 0, canvas.width, canvas.height);
+      let base64Data: string;
+      if (isTransparent) {
+        // Export transparent cutout as lossless PNG
+        base64Data = working.toDataURL('image/png');
+      } else {
+        // Export colored background as high quality JPEG
+        base64Data = display.toDataURL('image/jpeg', 0.95);
       }
-
-      // Draw subject
-      exportCtx.drawImage(canvas, 0, 0);
-
-      const base64Data = exportCanvas.toDataURL(format, 0.95);
 
       // Clean filename
       let filename = filenameInput.trim();
       if (!filename) {
-        const stem = selectedFile.split('\\').pop()?.split('/').pop()?.replace(/\.[^/.]+$/, "") || "foto";
+        const stem = selectedFile.split('\\').pop()?.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'foto';
         filename = `${stem}_${isTransparent ? 'nobg.png' : 'pasfoto.jpg'}`;
       } else if (!filename.toLowerCase().endsWith('.' + defaultExt)) {
-        filename = `${filename.replace(/\.[^/.]+$/, "")}.${defaultExt}`;
+        filename = `${filename.replace(/\.[^/.]+$/, '')}.${defaultExt}`;
       }
 
       const savedPath = await invoke<string>('save_image_from_base64', {
@@ -474,7 +460,7 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
   const handleSaveAs = async () => {
     const isTransparent = bgColor === 'transparent';
     const defaultExt = isTransparent ? 'png' : 'jpg';
-    const stem = selectedFile?.split('\\').pop()?.split('/').pop()?.replace(/\.[^/.]+$/, "") || "foto";
+    const stem = selectedFile?.split('\\').pop()?.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'foto';
     const defaultFilename = `${stem}_${isTransparent ? 'nobg.png' : 'pasfoto.jpg'}`;
 
     try {
@@ -483,24 +469,18 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
         filters: [{ name: 'Image', extensions: [defaultExt] }],
       });
       if (customPath) {
-        const dir = customPath.substring(0, customPath.lastIndexOf('\\')) || customPath.substring(0, customPath.lastIndexOf('/'));
+        const dir =
+          customPath.substring(0, customPath.lastIndexOf('\\')) ||
+          customPath.substring(0, customPath.lastIndexOf('/'));
         const name = customPath.split('\\').pop()?.split('/').pop() || defaultFilename;
 
-        const canvas = canvasRef.current;
-        if (!canvas) return;
+        const working = workingCanvasRef.current;
+        const display = displayCanvasRef.current;
+        if (!working || !display) return;
 
-        const format = isTransparent ? 'image/png' : 'image/jpeg';
-        const exportCanvas = document.createElement('canvas');
-        exportCanvas.width = canvas.width;
-        exportCanvas.height = canvas.height;
-        const exportCtx = exportCanvas.getContext('2d')!;
-
-        if (!isTransparent) {
-          exportCtx.fillStyle = bgColor;
-          exportCtx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-        exportCtx.drawImage(canvas, 0, 0);
-        const base64Data = exportCanvas.toDataURL(format, 0.95);
+        const base64Data = isTransparent
+          ? working.toDataURL('image/png')
+          : display.toDataURL('image/jpeg', 0.95);
 
         setIsSaving(true);
         const saved = await invoke<string>('save_image_from_base64', {
@@ -622,7 +602,10 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                     </div>
                   )}
                   <div className="truncate">
-                    <span className="text-xs font-semibold text-slate-800 dark:text-neutral-100 block truncate" title={selectedFile}>
+                    <span
+                      className="text-xs font-semibold text-slate-800 dark:text-neutral-100 block truncate"
+                      title={selectedFile}
+                    >
                       {selectedFile.split('\\').pop() || selectedFile}
                     </span>
                     <span className="text-[11px] text-slate-400 block truncate font-mono">
@@ -773,21 +756,21 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                 <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-neutral-300">
                   <Sliders className="w-3.5 h-3.5 text-slate-400" />
                   <span className="font-semibold">Ukuran Brush:</span>
-                  <span className="font-mono text-rose-500 dark:text-rose-400 font-bold w-10 text-right">
+                  <span className="font-mono text-rose-500 dark:text-rose-400 font-bold w-12 text-right">
                     {brushSize}px
                   </span>
                 </div>
                 <input
                   type="range"
                   min="5"
-                  max="120"
+                  max="200"
                   step="1"
                   value={brushSize}
                   onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
                   className="w-24 md:w-36 accent-rose-500 cursor-pointer"
                 />
                 <div className="flex items-center gap-1">
-                  {[10, 30, 60].map((sz) => (
+                  {[15, 45, 90, 150].map((sz) => (
                     <button
                       key={sz}
                       onClick={() => setBrushSize(sz)}
@@ -926,10 +909,10 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
           </div>
 
           {/* Interactive Canvas Workspace */}
-          <div className="relative bg-[#E5E5EA] dark:bg-[#141414] rounded-3xl p-4 md:p-6 overflow-hidden border border-black/[0.08] dark:border-white/[0.08] shadow-inner flex items-center justify-center min-h-[420px] max-h-[580px]">
+          <div className="relative bg-[#E5E5EA] dark:bg-[#141414] rounded-3xl p-4 md:p-6 overflow-hidden border border-black/[0.08] dark:border-white/[0.08] shadow-inner flex items-center justify-center min-h-[420px] max-h-[620px]">
             {/* Checkerboard Pattern for transparent areas */}
             <div
-              className="relative max-w-full max-h-[520px] overflow-auto rounded-2xl shadow-xl flex items-center justify-center"
+              className="relative max-w-full max-h-[560px] overflow-auto rounded-2xl shadow-xl flex items-center justify-center"
               style={{
                 transform: `scale(${zoomLevel})`,
                 transformOrigin: 'center center',
@@ -949,7 +932,9 @@ export const BgRemoverTab: React.FC<BgRemoverTabProps> = ({ outputDir }) => {
                 }}
               >
                 <canvas
-                  ref={canvasRef}
+                  ref={displayCanvasRef}
+                  width={canvasSize.width}
+                  height={canvasSize.height}
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}

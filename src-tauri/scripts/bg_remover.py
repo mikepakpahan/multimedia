@@ -9,7 +9,7 @@ Supports:
 import sys
 import os
 import argparse
-from PIL import Image
+from PIL import Image, ImageOps
 
 def hex_to_rgba(hex_color):
     hex_color = hex_color.lstrip('#')
@@ -33,7 +33,9 @@ def remove_background_ai(input_path, output_path, bg_color="transparent"):
         session = new_session("u2netp") # Fast lightweight model
         
         print("PROGRESS:40:Membaca foto...", flush=True)
-        input_image = Image.open(input_path).convert("RGBA")
+        raw_img = Image.open(input_path)
+        transposed = ImageOps.exif_transpose(raw_img)
+        input_image = (transposed if transposed is not None else raw_img).convert("RGBA")
         
         print("PROGRESS:60:Memisahkan subjek dari latar belakang...", flush=True)
         cutout = remove(input_image, session=session)
@@ -59,7 +61,9 @@ def remove_background_ai(input_path, output_path, bg_color="transparent"):
 def remove_background_color(input_path, output_path, bg_color="transparent"):
     print("PROGRESS:30:Menganalisis warna latar belakang...", flush=True)
     try:
-        img = Image.open(input_path).convert("RGBA")
+        raw_img = Image.open(input_path)
+        transposed = ImageOps.exif_transpose(raw_img)
+        img = (transposed if transposed is not None else raw_img).convert("RGBA")
         datas = img.getdata()
         
         # Sample corners to find background color
