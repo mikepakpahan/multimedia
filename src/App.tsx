@@ -9,6 +9,7 @@ import { YouTubeTab } from './components/tabs/YouTubeTab';
 import { VideoTab } from './components/tabs/VideoTab';
 import { AudioTab } from './components/tabs/AudioTab';
 import { ImageTab } from './components/tabs/ImageTab';
+import { BgRemoverTab } from './components/tabs/BgRemoverTab';
 import { PdfTab } from './components/tabs/PdfTab';
 import { SettingsTab } from './components/tabs/SettingsTab';
 import { TabType, EngineStatus, MediaTask, YouTubeMetadata, ProgressPayload } from './types';
@@ -237,6 +238,43 @@ export function App() {
     }
   };
 
+  const handleStartRemoveBg = async (
+    filePath: string,
+    method: string,
+    bgColor: string
+  ) => {
+    const filename = filePath.split('\\').pop()?.split('/').pop() || filePath;
+    const taskId = `bg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newTask: MediaTask = {
+      id: taskId,
+      name: `Hapus BG: ${filename}`,
+      type: 'bgremover',
+      status: 'processing',
+      progress: 0,
+      targetFormat: bgColor === 'transparent' ? 'PNG (Transparan)' : 'JPG (Pas Foto)',
+      createdAt: Date.now(),
+    };
+
+    setTasks((prev) => [newTask, ...prev]);
+    setIsQueueOpen(true);
+
+    try {
+      await invoke('start_remove_background', {
+        taskId,
+        inputPath: filePath,
+        method,
+        bgColor,
+        outputDir: outputDir || (engineStatus?.default_output_dir ?? ''),
+      });
+    } catch (err) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, status: 'failed', error: String(err) } : t
+        )
+      );
+    }
+  };
+
   const handleStartPdfToDocx = async (filePath: string) => {
     const filename = filePath.split('\\').pop()?.split('/').pop() || filePath;
     const taskId = `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
@@ -384,6 +422,9 @@ export function App() {
               onQuickProcessImage={(file, format, quality) =>
                 handleStartImageConversion(file, format, quality, 100)
               }
+              onQuickRemoveBg={(file) =>
+                handleStartRemoveBg(file, 'ai', 'transparent')
+              }
             />
           )}
 
@@ -408,6 +449,13 @@ export function App() {
               outputDir={outputDir}
               engineStatus={engineStatus}
               onStartConversion={handleStartAudioConversion}
+            />
+          )}
+
+          {activeTab === 'bgremover' && (
+            <BgRemoverTab
+              outputDir={outputDir}
+              onStartRemoveBg={handleStartRemoveBg}
             />
           )}
 

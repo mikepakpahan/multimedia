@@ -8,6 +8,7 @@ import {
   FileText,
   Image as ImageIcon,
   Music,
+  Wand2,
 } from 'lucide-react';
 import { YouTubeIcon } from '../icons/YouTubeIcon';
 import { TabType } from '../../types';
@@ -19,6 +20,7 @@ interface DashboardTabProps {
   onQuickProcessAudio: (file: string, format: string, bitrate: string) => void;
   onQuickProcessPdf: (file: string, action: 'docx' | 'compress') => void;
   onQuickProcessImage: (file: string, format: string, quality: number) => void;
+  onQuickRemoveBg: (file: string) => void;
 }
 
 export const DashboardTab: React.FC<DashboardTabProps> = ({
@@ -27,6 +29,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
   onQuickProcessAudio,
   onQuickProcessPdf,
   onQuickProcessImage,
+  onQuickRemoveBg,
 }) => {
   const [droppedFile, setDroppedFile] = useState<string | null>(null);
   const [detectedType, setDetectedType] = useState<'video' | 'audio' | 'pdf' | 'image' | null>(null);
@@ -87,6 +90,15 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       accent: 'from-amber-500/10 to-amber-500/5 text-amber-500 border-amber-500/20',
       tag: 'Format Rapi',
       tagColor: 'bg-amber-500 text-white',
+    },
+    {
+      title: 'Hapus Background & Pas Foto',
+      desc: 'Potong otomatis subjek dengan AI transparan atau buat pas foto merah/biru.',
+      tab: 'bgremover' as TabType,
+      icon: Wand2,
+      accent: 'from-rose-500/10 to-rose-500/5 text-rose-500 border-rose-500/20',
+      tag: 'AI Terbaru',
+      tagColor: 'bg-rose-500 text-white',
     },
     {
       title: 'Kecilkan Ukuran Foto',
@@ -253,7 +265,18 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               )}
 
               {detectedType === 'image' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    onClick={() => {
+                      onQuickRemoveBg(droppedFile);
+                      clearDroppedFile();
+                    }}
+                    className="p-3 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 border border-rose-200 dark:border-rose-900 rounded-2xl text-left text-xs transition space-y-1"
+                  >
+                    <span className="font-semibold text-rose-700 dark:text-rose-300 block">✨ Hapus Background (AI)</span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Potong latar transparan atau ganti pas foto.</span>
+                  </button>
+
                   <button
                     onClick={() => {
                       onQuickProcessImage(droppedFile, 'webp', 80);
@@ -261,8 +284,8 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                     }}
                     className="p-3 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-900 rounded-2xl text-left text-xs transition space-y-1"
                   >
-                    <span className="font-semibold text-emerald-700 dark:text-emerald-300 block">🖼️ Kompres ke WebP (Hemat 80%)</span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Ukuran sangat hemat tanpa pecah untuk web & display.</span>
+                    <span className="font-semibold text-emerald-700 dark:text-emerald-300 block">🖼️ Kompres ke WebP</span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Hemat ukuran 80% untuk web.</span>
                   </button>
 
                   <button
@@ -272,8 +295,8 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                     }}
                     className="p-3 bg-slate-50 dark:bg-neutral-700 hover:bg-slate-100 border border-slate-200 dark:border-neutral-600 rounded-2xl text-left text-xs transition space-y-1"
                   >
-                    <span className="font-semibold text-slate-700 dark:text-slate-200 block">📷 Simpan sebagai JPG Standar</span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Format kompatibel untuk semua perangkat HP.</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200 block">📷 Simpan JPEG</span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block">Format standar untuk semua HP.</span>
                   </button>
                 </div>
               )}

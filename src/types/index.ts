@@ -1,4 +1,4 @@
-export type TabType = 'dashboard' | 'youtube' | 'video' | 'audio' | 'image' | 'pdf' | 'settings';
+export type TabType = 'dashboard' | 'youtube' | 'video' | 'audio' | 'image' | 'bgremover' | 'pdf' | 'settings';
 
 export interface EngineStatus {
   ffmpeg_installed: boolean;
@@ -30,7 +30,7 @@ export interface ProgressPayload {
 export interface MediaTask {
   id: string;
   name: string;
-  type: 'youtube' | 'video' | 'audio' | 'image' | 'pdf';
+  type: 'youtube' | 'video' | 'audio' | 'image' | 'pdf' | 'bgremover';
   status: 'pending' | 'processing' | 'completed' | 'failed';
   progress: number; // 0 - 100
   targetFormat: string;

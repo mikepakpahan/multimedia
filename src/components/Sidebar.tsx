@@ -10,6 +10,7 @@ import {
   AlertCircle,
   PanelLeftClose,
   PanelLeftOpen,
+  Wand2,
 } from 'lucide-react';
 import { YouTubeIcon } from './icons/YouTubeIcon';
 import { TabType, EngineStatus } from '../types';
@@ -69,6 +70,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       title: 'DOKUMEN & FOTO',
       items: [
+        {
+          id: 'bgremover' as TabType,
+          label: 'Hapus Background',
+          icon: Wand2,
+          badge: 'AI',
+          color: 'text-rose-500',
+        },
         {
           id: 'image' as TabType,
           label: 'Kompres Gambar',
