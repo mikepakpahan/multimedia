@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "multimedia",
+  "productName": "MultiMedia Studio",
   "version": "0.1.0",
   "identifier": "com.multimedia.fidel",
   "build": {
@@ -30,7 +30,8 @@
     "targets": "all",
     "windows": {
       "nsis": {
-        "installMode": "both"
+        "installMode": "both",
+        "installerIcon": "icons/icon.ico"
       }
     },
     "resources": [

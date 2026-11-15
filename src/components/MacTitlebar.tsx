@@ -174,12 +174,15 @@ export const MacTitlebar: React.FC<MacTitlebarProps> = ({
         </button>
 
         {/* App Label */}
-        <span
-          data-tauri-drag-region
-          className="text-xs font-semibold text-slate-700 dark:text-neutral-300 hidden sm:inline tracking-tight cursor-default"
-        >
-          MultiMedia Studio
-        </span>
+        <div data-tauri-drag-region className="flex items-center gap-2 hidden sm:flex cursor-default select-none">
+          <img src="/logo.png" alt="Logo" className="w-4 h-4 object-contain shrink-0 drop-shadow-xs" />
+          <span
+            data-tauri-drag-region
+            className="text-xs font-semibold text-slate-700 dark:text-neutral-300 tracking-tight cursor-default"
+          >
+            MultiMedia Studio
+          </span>
+        </div>
       </div>
 
       {/* Center: Draggable Area with Output Folder Pill */}

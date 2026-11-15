@@ -118,11 +118,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Top Header / Navigation Sections */}
       <div className="p-2.5 space-y-3 overflow-y-auto overflow-x-hidden">
         {/* Sidebar Header with Toggle button */}
-        <div className={`flex items-center pb-1 ${isCollapsed ? 'justify-center' : 'justify-between px-2'}`}>
-          {!isCollapsed && (
-            <span className="text-[10px] font-bold text-slate-400 dark:text-neutral-500 tracking-wider">
-              NAVIGASI
-            </span>
+        <div className={`flex items-center pb-1 ${isCollapsed ? 'flex-col gap-2' : 'justify-between px-2'}`}>
+          {!isCollapsed ? (
+            <div className="flex items-center gap-2">
+              <img src="/logo.png" alt="Logo" className="w-5 h-5 object-contain shrink-0" />
+              <span className="text-xs font-bold text-slate-800 dark:text-neutral-100 tracking-tight">
+                MultiMedia Studio
+              </span>
+            </div>
+          ) : (
+            <img src="/logo.png" alt="Logo" className="w-5 h-5 object-contain mx-auto" />
           )}
           <button
             onClick={onToggleCollapse}
